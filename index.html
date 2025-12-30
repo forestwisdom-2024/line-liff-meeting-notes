@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>會議記錄助手</title>
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; background-color: #f5f5f5; }
+        .container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; }
+        h2 { color: #333; text-align: center; margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: #666; font-weight: bold; }
+        input[type="text"], input[type="email"], input[type="file"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+        button { width: 100%; background-color: #00B900; color: white; border: none; padding: 12px; margin-top: 10px; border-radius: 5px; font-size: 16px; cursor: pointer; transition: background 0.3s; }
+        button:hover { background-color: #009900; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        #status { text-align: center; margin-top: 15px; color: #888; font-size: 0.9em; line-height: 1.5; }
+        .error { color: #d9534f; }
+        .success { color: #28a745; }
+    </script>
+    <style>
+        /* 簡單的載入動畫 */
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00B900; border-radius: 50%; width: 20px; height: 20px; animation: spin 2s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px; display: none;}
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>📝 會議語音上傳</h2>
+        <form id="uploadForm">
+            <div class="form-group">
+                <label for="fileInput">1. 選擇檔案 (錄音/文字)</label>
+                <input type="file" id="fileInput" name="file" accept="audio/*,text/plain,.m4a,.mp3,.txt" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="emailInput">2. 收件 Email (選填)</label>
+                <input type="email" id="emailInput" name="email" placeholder="輸入 Email 以接收 PDF 會議記錄">
+            </div>
+
+            <button type="submit" id="submitBtn">
+                <div class="loader" id="loader"></div>
+                <span id="btnText">開始分析與生成</span>
+            </button>
+        </form>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 設定區：請修改以下兩個變數
+        // ==========================================
+        const LIFF_ID = "你的_LIFF_ID"; // 請填入你的 LIFF ID
+        const N8N_WEBHOOK_URL = "https://n8n.你的網域.com/webhook/process-meeting"; // 你的 n8n Webhook (POST) URL
+        // ==========================================
+
+        async function main() {
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                }
+            } catch (err) {
+                document.getElementById('status').innerHTML = `<span class="error">LIFF 初始化失敗: ${err.message}</span>`;
+            }
+        }
+        main();
+
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const btn = document.getElementById('submitBtn');
+            const btnText = document.getElementById('btnText');
+            const loader = document.getElementById('loader');
+            const status = document.getElementById('status');
+            const fileInput = document.getElementById('fileInput');
+            const emailInput = document.getElementById('emailInput');
+
+            if(fileInput.files.length === 0) {
+                status.innerHTML = '<span class="error">請先選擇檔案</span>';
+                return;
+            }
+
+            // UI 鎖定狀態
+            btn.disabled = true;
+            btnText.textContent = "上傳處理中...";
+            loader.style.display = "inline-block";
+            status.textContent = "檔案正在上傳至 AI 伺服器，請勿關閉視窗...";
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('email', emailInput.value);
+
+            try {
+                // 嘗試取得使用者資料
+                if (liff.isLoggedIn()) {
+                    const profile = await liff.getProfile();
+                    formData.append('userId', profile.userId);
+                    formData.append('displayName', profile.displayName);
+                }
+            } catch (e) {
+                console.warn('無法取得 LINE 個人資料', e);
+            }
+
+            try {
+                // 發送至 n8n
+                const response = await fetch(N8N_WEBHOOK_URL, {
+                    method: 'POST',
+                    body: formData
+                    // 注意：fetch 傳送 FormData 時不需要手動設定 Content-Type，瀏覽器會自動處理
+                });
+
+                if (response.ok) {
+                    status.innerHTML = '<span class="success">✅ 上傳成功！<br>AI 正在分析，結果將透過 LINE 通知您。</span>';
+                    btnText.textContent = "完成";
+                    loader.style.display = "none";
+                    
+                    // 3秒後自動關閉視窗
+                    setTimeout(() => {
+                        liff.closeWindow();
+                    }, 3000);
+                    
+                } else {
+                    throw new Error(`伺服器回應錯誤: ${response.status}`);
+                }
+            } catch (error) {
+                console.error(error);
+                status.innerHTML = `<span class="error">❌ 發生錯誤: ${error.message}<br>請檢查網路或稍後再試。</span>`;
+                btn.disabled = false;
+                btnText.textContent = "再試一次";
+                loader.style.display = "none";
+            }
+        });
+    </script>
+</body>
+</html>
