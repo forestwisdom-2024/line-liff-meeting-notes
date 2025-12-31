@@ -18,7 +18,7 @@
         #status { text-align: center; margin-top: 15px; color: #888; font-size: 0.9em; line-height: 1.5; }
         .error { color: #d9534f; }
         .success { color: #28a745; }
-    </script>
+    </style>
     <style>
         /* 簡單的載入動畫 */
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00B900; border-radius: 50%; width: 20px; height: 20px; animation: spin 2s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px; display: none;}
@@ -30,7 +30,7 @@
         <h2>📝 會議語音上傳</h2>
         <form id="uploadForm">
             <div class="form-group">
-                <label for="fileInput">1. 選擇檔案 (錄音/文字)</label>
+                <label for="fileInput">1. 選擇檔案 (上限 25MB)</label>
                 <input type="file" id="fileInput" name="file" accept="audio/*,text/plain,.m4a,.mp3,.txt" required>
             </div>
             
@@ -53,6 +53,7 @@
         // ==========================================
         const LIFF_ID = "2008799993-Dq2SOrHq"; // 請填入你的 LIFF ID
         const N8N_WEBHOOK_URL = "https://richman.zeabur.app/webhook-test/process-meeting"; // 你的 n8n Webhook (POST) URL
+        const MAX_FILE_SIZE_MB = 25; // 設定檔案大小限制 (MB)
         // ==========================================
 
         async function main() {
@@ -82,6 +83,18 @@
                 return;
             }
 
+            // ==========================================
+            // 修改處：新增檔案大小檢查邏輯
+            // ==========================================
+            const file = fileInput.files[0];
+            const fileSizeMB = file.size / (1024 * 1024);
+            
+            if (fileSizeMB > MAX_FILE_SIZE_MB) {
+                status.innerHTML = `<span class="error">❌ 檔案過大 (${fileSizeMB.toFixed(2)}MB)！<br>請上傳小於 ${MAX_FILE_SIZE_MB}MB 的檔案以避免伺服器錯誤。</span>`;
+                return; // 阻止後續程式執行
+            }
+            // ==========================================
+
             // UI 鎖定狀態
             btn.disabled = true;
             btnText.textContent = "上傳處理中...";
@@ -89,7 +102,7 @@
             status.textContent = "檔案正在上傳至 AI 伺服器，請勿關閉視窗...";
 
             const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
+            formData.append('file', file);
             formData.append('email', emailInput.value);
 
             try {
@@ -108,7 +121,6 @@
                 const response = await fetch(N8N_WEBHOOK_URL, {
                     method: 'POST',
                     body: formData
-                    // 注意：fetch 傳送 FormData 時不需要手動設定 Content-Type，瀏覽器會自動處理
                 });
 
                 if (response.ok) {
