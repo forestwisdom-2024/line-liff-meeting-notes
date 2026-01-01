@@ -18,11 +18,11 @@
         #status { text-align: center; margin-top: 15px; color: #888; font-size: 0.9em; line-height: 1.5; }
         .error { color: #d9534f; }
         .success { color: #28a745; }
-    </style>
-    <style>
-        /* 簡單的載入動畫 */
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #00B900; border-radius: 50%; width: 20px; height: 20px; animation: spin 2s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px; display: none;}
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* === 新增進度條樣式 === */
+        .progress-container { width: 100%; background-color: #e0e0e0; border-radius: 5px; margin-top: 15px; display: none; }
+        .progress-bar { width: 0%; height: 10px; background-color: #00B900; border-radius: 5px; transition: width 0.3s; }
+        .progress-text { font-size: 0.8em; text-align: center; margin-top: 5px; color: #666; display: none;}
     </style>
 </head>
 <body>
@@ -40,20 +40,24 @@
             </div>
 
             <button type="submit" id="submitBtn">
-                <div class="loader" id="loader"></div>
                 <span id="btnText">開始分析與生成</span>
             </button>
+            
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="progress-text" id="progressText">0%</div>
         </form>
         <div id="status"></div>
     </div>
 
     <script>
         // ==========================================
-        // 設定區：請修改以下兩個變數
+        // 設定區
         // ==========================================
-        const LIFF_ID = "2008799993-Dq2SOrHq"; // 請填入你的 LIFF ID
-        const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook-test/process-meeting"; // 你的 n8n Webhook (POST) URL
-        const MAX_FILE_SIZE_MB = 25; // 設定檔案大小限制 (MB)
+        const LIFF_ID = "2008799993-Dq2SOrHq"; 
+        const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting"; // 確保是正式網址
+        const MAX_FILE_SIZE_MB = 25; 
         // ==========================================
 
         async function main() {
@@ -73,76 +77,116 @@
             
             const btn = document.getElementById('submitBtn');
             const btnText = document.getElementById('btnText');
-            const loader = document.getElementById('loader');
             const status = document.getElementById('status');
             const fileInput = document.getElementById('fileInput');
             const emailInput = document.getElementById('emailInput');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
 
             if(fileInput.files.length === 0) {
                 status.innerHTML = '<span class="error">請先選擇檔案</span>';
                 return;
             }
 
-            // ==========================================
-            // 修改處：新增檔案大小檢查邏輯
-            // ==========================================
+            // 檢查檔案大小
             const file = fileInput.files[0];
             const fileSizeMB = file.size / (1024 * 1024);
-            
             if (fileSizeMB > MAX_FILE_SIZE_MB) {
-                status.innerHTML = `<span class="error">❌ 檔案過大 (${fileSizeMB.toFixed(2)}MB)！<br>請上傳小於 ${MAX_FILE_SIZE_MB}MB 的檔案以避免伺服器錯誤。</span>`;
-                return; // 阻止後續程式執行
+                status.innerHTML = `<span class="error">❌ 檔案過大 (${fileSizeMB.toFixed(2)}MB)！<br>請上傳小於 ${MAX_FILE_SIZE_MB}MB 的檔案。</span>`;
+                return;
             }
-            // ==========================================
 
-            // UI 鎖定狀態
+            // 鎖定介面 & 顯示進度條
             btn.disabled = true;
-            btnText.textContent = "上傳處理中...";
-            loader.style.display = "inline-block";
-            status.textContent = "檔案正在上傳至 AI 伺服器，請勿關閉視窗...";
+            btnText.textContent = "上傳中...";
+            status.textContent = "";
+            progressContainer.style.display = "block";
+            progressText.style.display = "block";
+            progressBar.style.width = "0%";
+            progressText.textContent = "0%";
 
             const formData = new FormData();
             formData.append('file', file);
             formData.append('email', emailInput.value);
 
             try {
-                // 嘗試取得使用者資料
                 if (liff.isLoggedIn()) {
                     const profile = await liff.getProfile();
                     formData.append('userId', profile.userId);
                     formData.append('displayName', profile.displayName);
                 }
-            } catch (e) {
-                console.warn('無法取得 LINE 個人資料', e);
-            }
+            } catch (e) { console.warn('無法取得 LINE 個人資料', e); }
 
-            try {
-                // 發送至 n8n
-                const response = await fetch(N8N_WEBHOOK_URL, {
-                    method: 'POST',
-                    body: formData
-                });
+            // 改用 XMLHttpRequest 以監聽進度
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', N8N_WEBHOOK_URL, true);
+            
+            // 設定超時時間 (例如 180秒)
+            xhr.timeout = 180000; 
 
-                if (response.ok) {
-                    status.innerHTML = '<span class="success">✅ 上傳成功！<br>AI 正在分析，結果將透過 LINE 通知您。</span>';
-                    btnText.textContent = "完成";
-                    loader.style.display = "none";
+            // 監聽上傳進度
+            xhr.upload.onprogress = function(event) {
+                if (event.lengthComputable) {
+                    const percentComplete = Math.round((event.loaded / event.total) * 100);
+                    progressBar.style.width = percentComplete + "%";
+                    progressText.textContent = `上傳中: ${percentComplete}%`;
                     
-                    // 3秒後自動關閉視窗
-                    setTimeout(() => {
-                        liff.closeWindow();
-                    }, 3000);
-                    
-                } else {
-                    throw new Error(`伺服器回應錯誤: ${response.status}`);
+                    if (percentComplete === 100) {
+                        btnText.textContent = "AI 思考中...";
+                        progressText.textContent = "✅ 上傳完成，正在等待 AI 分析 (請勿關閉)...";
+                        status.textContent = "伺服器正在處理語音轉文字與摘要，這可能需要 30~60 秒...";
+                    }
                 }
-            } catch (error) {
-                console.error(error);
-                status.innerHTML = `<span class="error">❌ 發生錯誤: ${error.message}<br>請檢查網路或稍後再試。</span>`;
+            };
+
+            // 請求完成
+            xhr.onload = async function() {
+                if (xhr.status === 200) {
+                    try {
+                        const data = JSON.parse(xhr.responseText);
+                        status.innerHTML = '<span class="success">✅ 分析完成！結果已傳送至 LINE。</span>';
+                        btnText.textContent = "完成";
+                        
+                        if (liff.isInClient()) {
+                            // 嘗試回傳訊息
+                            try {
+                                const msgText = `📝 會議記錄摘要：\n\n${data.summary || "摘要已生成 (請查看郵件)"}\n\n(詳細 PDF 已寄至信箱)`;
+                                await liff.sendMessages([{ type: 'text', text: msgText }]);
+                            } catch (msgError) {
+                                console.log("無法自動發送訊息", msgError);
+                            }
+                            liff.closeWindow();
+                        } else {
+                            // 外部瀏覽器
+                            status.innerText = data.summary || "處理完成";
+                        }
+                    } catch (e) {
+                        status.innerHTML = '<span class="error">❌ 格式錯誤: 無法解析伺服器回傳值</span>';
+                        console.error(e);
+                    }
+                } else {
+                    status.innerHTML = `<span class="error">❌ 伺服器錯誤 (Code: ${xhr.status})</span>`;
+                    btn.disabled = false;
+                    btnText.textContent = "再試一次";
+                }
+            };
+
+            // 請求錯誤
+            xhr.onerror = function() {
+                status.innerHTML = '<span class="error">❌ 網路連線錯誤，請檢查網路狀況。</span>';
                 btn.disabled = false;
                 btnText.textContent = "再試一次";
-                loader.style.display = "none";
-            }
+            };
+
+            // 請求超時
+            xhr.ontimeout = function() {
+                status.innerHTML = '<span class="error">⚠️ 請求逾時：AI 處理時間過長。<br>但請放心，Email 可能稍後仍會寄達。</span>';
+                btn.disabled = false;
+                btnText.textContent = "重試";
+            };
+
+            xhr.send(formData);
         });
     </script>
 </body>
