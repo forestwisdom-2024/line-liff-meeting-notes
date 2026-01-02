@@ -3,55 +3,63 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WiseLife 智慧會議助手</title>
+    <title>WiseLife 智慧會議助手 v2.0</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        /* === WiseLife 專業風格樣式 === */
-        body { font-family: "Microsoft JhengHei", -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; background-color: #f0f2f5; color: #333; }
-        .container { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); max-width: 500px; margin: 0 auto; }
-        h2 { color: #2c3e50; text-align: center; margin-bottom: 25px; font-weight: 600; }
+        /* === WiseLife v2.0 樣式 === */
+        body { font-family: "Microsoft JhengHei", sans-serif; padding: 20px; background-color: #f4f6f9; color: #333; }
+        .container { background: white; padding: 30px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; position: relative; }
+        
+        /* 版本標籤 */
+        .version-tag { position: absolute; top: 15px; right: 15px; font-size: 0.75rem; color: #aaa; background: #eee; padding: 4px 8px; border-radius: 4px; }
+
+        h2 { color: #2c3e50; text-align: center; margin-bottom: 25px; font-weight: 700; letter-spacing: 1px; }
         .form-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; color: #555; font-weight: bold; font-size: 0.95em; }
+        label { display: block; margin-bottom: 8px; color: #555; font-weight: bold; }
+        .sub-label { font-size: 0.8em; color: #888; font-weight: normal; margin-left: 5px; }
+
         input[type="text"], input[type="email"], input[type="file"] { 
-            width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 16px; transition: border 0.3s;
+            width: 100%; padding: 12px; border: 2px solid #eef2f7; border-radius: 10px; box-sizing: border-box; font-size: 16px; transition: all 0.3s;
         }
-        input:focus { border-color: #00B900; outline: none; }
+        input:focus { border-color: #00B900; background: #fff; outline: none; }
         
         button { 
-            width: 100%; background-color: #00B900; color: white; border: none; padding: 14px; 
-            margin-top: 15px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; 
-            transition: all 0.2s; box-shadow: 0 2px 5px rgba(0,185,0,0.3);
+            width: 100%; background: linear-gradient(135deg, #00B900 0%, #009900 100%); color: white; border: none; padding: 16px; 
+            margin-top: 20px; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; 
+            box-shadow: 0 4px 15px rgba(0,185,0,0.3); transition: transform 0.2s;
         }
-        button:hover { background-color: #009900; transform: translateY(-1px); }
-        button:disabled { background-color: #ccc; cursor: not-allowed; transform: none; box-shadow: none; }
+        button:active { transform: scale(0.98); }
+        button:disabled { background: #ccc; cursor: not-allowed; box-shadow: none; }
         
-        #status { text-align: center; margin-top: 20px; font-size: 0.9em; line-height: 1.6; word-break: break-all; }
-        .error { color: #d9534f; background: #fde8e8; padding: 10px; border-radius: 5px; display: block; }
-        .success { color: #28a745; background: #e8f5e9; padding: 10px; border-radius: 5px; display: block; }
-        .info { color: #0056b3; background: #e3f2fd; padding: 10px; border-radius: 5px; display: block; }
+        #status { text-align: center; margin-top: 20px; font-size: 0.95em; line-height: 1.6; }
+        .error { color: #d63031; background: #ffebeb; padding: 10px; border-radius: 8px; display: block; border: 1px solid #ffcccc; }
+        .success { color: #00b894; background: #e3fdf5; padding: 10px; border-radius: 8px; display: block; border: 1px solid #ccfbf1; }
+        .info { color: #0984e3; background: #e1f5fe; padding: 10px; border-radius: 8px; display: block; }
 
-        /* 進度條樣式 */
-        .progress-container { width: 100%; background-color: #eee; border-radius: 10px; margin-top: 20px; display: none; overflow: hidden; }
-        .progress-bar { width: 0%; height: 12px; background-color: #00B900; border-radius: 10px; transition: width 0.4s ease; }
-        .progress-text { font-size: 0.85em; text-align: center; margin-top: 8px; color: #666; display: none;}
+        .progress-container { width: 100%; background-color: #f1f1f1; border-radius: 10px; margin-top: 20px; display: none; overflow: hidden; height: 10px; }
+        .progress-bar { width: 0%; height: 100%; background-color: #00B900; border-radius: 10px; transition: width 0.3s ease; }
+        .progress-text { font-size: 0.8rem; text-align: center; margin-top: 8px; color: #999; display: none;}
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>📝 WiseLife 會議語音上傳</h2>
+        <div class="version-tag">Ver 2.1.0</div>
+
+        <h2>🎙️ WiseLife 會議助理</h2>
         <form id="uploadForm">
             <div class="form-group">
-                <label for="fileInput">1. 選擇錄音檔 (上限 25MB)</label>
-                <input type="file" id="fileInput" name="file" accept="audio/*,text/plain,.m4a,.mp3,.wav" required>
+                <label for="fileInput">檔案上傳 <span class="sub-label">(語音 或 文字檔)</span></label>
+                <input type="file" id="fileInput" name="file" accept="audio/*,text/plain,.m4a,.mp3,.wav,.txt,.md" required>
+                <small style="color:#888; display:block; margin-top:5px;">⚠️ 限制：單檔 < 25MB</small>
             </div>
             
             <div class="form-group">
-                <label for="emailInput">2. 收件 Email (接收完整報告)</label>
-                <input type="email" id="emailInput" name="email" placeholder="name@example.com" required>
+                <label for="emailInput">接收 Email <span class="sub-label">(選填)</span></label>
+                <input type="email" id="emailInput" name="email" placeholder="若留空則僅顯示摘要">
             </div>
 
             <button type="submit" id="submitBtn">
-                <span id="btnText">開始分析與生成</span>
+                <span id="btnText">🚀 開始智慧分析</span>
             </button>
             
             <div class="progress-container" id="progressContainer">
@@ -64,28 +72,26 @@
 
     <script>
         // ==========================================
-        // ⚠️ 請修改這裡 (Configuration)
+        // 設定區
         // ==========================================
         const LIFF_ID = "2008799993-Dq2SOrHq"; 
-        const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting"; // 例如 https://xxx.zeabur.app/webhook/process-meeting
+        const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting"; 
         const MAX_FILE_SIZE_MB = 25; 
         // ==========================================
 
-        // 初始化 LIFF
         async function initLiff() {
             try {
                 await liff.init({ liffId: LIFF_ID });
                 if (!liff.isLoggedIn()) {
                     liff.login();
                 } else {
-                    // 自動填入使用者 Email (如果有的話)
                     const user = await liff.getDecodedIDToken();
                     if(user && user.email) {
                         document.getElementById('emailInput').value = user.email;
                     }
                 }
             } catch (err) {
-                document.getElementById('status').innerHTML = `<span class="error">LIFF 初始化失敗: ${err.message}</span>`;
+                console.error(err);
             }
         }
         initLiff();
@@ -93,7 +99,6 @@
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            // 取得 DOM 元素
             const btn = document.getElementById('submitBtn');
             const btnText = document.getElementById('btnText');
             const status = document.getElementById('status');
@@ -103,58 +108,52 @@
             const pBar = document.getElementById('progressBar');
             const pText = document.getElementById('progressText');
 
-            // 1. 基礎檢查
-            if(fileInput.files.length === 0) {
-                alert("請選擇檔案");
-                return;
-            }
+            if(fileInput.files.length === 0) { alert("請選擇檔案"); return; }
+            
+            // 5. 大檔 HTML 處理 (前端攔截)
             const file = fileInput.files[0];
-            if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-                status.innerHTML = `<span class="error">❌ 檔案過大！上限為 ${MAX_FILE_SIZE_MB}MB</span>`;
+            const fileSizeMB = file.size / (1024 * 1024);
+            if (fileSizeMB > MAX_FILE_SIZE_MB) {
+                status.innerHTML = `<span class="error">❌ 檔案過大 (${fileSizeMB.toFixed(2)}MB)<br>請將檔案切割或壓縮至 ${MAX_FILE_SIZE_MB}MB 以下。</span>`;
                 return;
             }
 
-            // 2. 鎖定介面
+            // 鎖定 UI
             btn.disabled = true;
             status.innerHTML = "";
             pContainer.style.display = "block";
             pText.style.display = "block";
             pBar.style.width = "0%";
-            pText.textContent = "準備上傳...";
+            pText.textContent = "上傳中...";
 
-            // 3. 準備資料
             const formData = new FormData();
-            formData.append('file', file); // 對應 N8N 的 binary property
+            formData.append('file', file);
+            // 處理 Email 選填邏輯 (若為空字串也傳送，後端判斷)
             formData.append('email', emailInput.value);
 
             try {
                 if (liff.isLoggedIn()) {
                     const profile = await liff.getProfile();
                     formData.append('userId', profile.userId);
-                    formData.append('displayName', profile.displayName);
                 }
-            } catch (e) { console.warn('無法取得個資', e); }
+            } catch (e) {}
 
-            // 4. 發送請求 (使用 XMLHttpRequest 以監聽進度)
             const xhr = new XMLHttpRequest();
             xhr.open('POST', N8N_WEBHOOK_URL, true);
-            xhr.timeout = 180000; // 設定 3 分鐘超時
+            xhr.timeout = 300000; // 5分鐘 (文字處理快，語音處理慢)
 
-            // 進度條事件
             xhr.upload.onprogress = function(event) {
                 if (event.lengthComputable) {
                     const percent = Math.round((event.loaded / event.total) * 100);
                     pBar.style.width = percent + "%";
-                    pText.textContent = `上傳中: ${percent}%`;
+                    pText.textContent = `${percent}%`;
                     if (percent === 100) {
-                        btnText.textContent = "AI 正在思考中...";
-                        pText.textContent = "✅ 上傳完成，正在生成會議記錄 (請勿關閉視窗)...";
-                        status.innerHTML = "<span class='info'>⏳ 伺服器處理中，這可能需要 30~60 秒...</span>";
+                        btnText.textContent = "🧠 AI 大腦運轉中...";
+                        pText.textContent = "上傳完成，正在生成摘要 (請勿關閉)...";
                     }
                 }
             };
 
-            // 成功回調
             xhr.onload = async function() {
                 if (xhr.status === 200) {
                     try {
@@ -162,42 +161,32 @@
                         status.innerHTML = `<span class="success">✅ 分析完成！</span>`;
                         btnText.textContent = "完成";
                         
-                        // LIFF 回傳訊息到聊天室
+                        // 3. LIFF 回傳摘要
                         if (liff.isInClient()) {
-                            const summaryText = res.summary || "會議記錄已生成";
+                            const summaryText = res.summary || "摘要生成完畢";
+                            // 檢查是否有 email，決定提示訊息
+                            const emailNote = emailInput.value ? "\n(完整 HTML 報告已寄出)" : "\n(未填寫 Email，僅顯示摘要)";
+                            
                             await liff.sendMessages([{ 
                                 type: 'text', 
-                                text: `📝 會議摘要：\n\n${summaryText}\n\n(完整版已寄至信箱)` 
+                                text: `📝 WiseLife 會議摘要：\n\n${summaryText}\n${emailNote}` 
                             }]);
-                            liff.closeWindow(); // 成功後關閉視窗
+                            liff.closeWindow();
                         } else {
-                            // 外部瀏覽器測試用
-                            alert("成功！摘要：" + res.summary);
+                            alert("摘要：" + res.summary);
                         }
                     } catch (e) {
-                        status.innerHTML = `<span class="error">❌ 資料解析錯誤: ${e.message}</span>`;
+                        status.innerHTML = `<span class="error">JSON 錯誤: ${e.message}</span>`;
                     }
                 } else {
-                    status.innerHTML = `<span class="error">❌ 伺服器錯誤 (${xhr.status}): ${xhr.statusText}<br>請檢查 N8N 執行紀錄。</span>`;
+                    status.innerHTML = `<span class="error">Server Error: ${xhr.status}</span>`;
                     btn.disabled = false;
                     btnText.textContent = "重試";
                 }
             };
 
-            // 錯誤回調 (包含 CORS 與 網路斷線)
             xhr.onerror = function() {
-                let errorMsg = "❌ 網路連線錯誤";
-                if (xhr.status === 0) {
-                    errorMsg += " (可能是 CORS 跨域被阻擋，請檢查 N8N Webhook 設定)";
-                }
-                status.innerHTML = `<span class="error">${errorMsg}<br>Status: ${xhr.status}</span>`;
-                btn.disabled = false;
-                btnText.textContent = "重試";
-            };
-
-            // 超時回調
-            xhr.ontimeout = function() {
-                status.innerHTML = `<span class="error">⚠️ 請求逾時 (Timeout)<br>AI 處理時間過長，但 Email 可能稍後會收到。</span>`;
+                status.innerHTML = `<span class="error">❌ 網路連線錯誤 (請檢查 Webhook CORS)</span>`;
                 btn.disabled = false;
                 btnText.textContent = "重試";
             };
