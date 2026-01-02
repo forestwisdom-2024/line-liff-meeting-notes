@@ -3,40 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>會議記錄助手</title>
+    <title>WiseLife 智慧會議助手</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; background-color: #f5f5f5; }
-        .container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; }
-        h2 { color: #333; text-align: center; margin-bottom: 20px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; color: #666; font-weight: bold; }
-        input[type="text"], input[type="email"], input[type="file"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-        button { width: 100%; background-color: #00B900; color: white; border: none; padding: 12px; margin-top: 10px; border-radius: 5px; font-size: 16px; cursor: pointer; transition: background 0.3s; }
-        button:hover { background-color: #009900; }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
-        #status { text-align: center; margin-top: 15px; color: #888; font-size: 0.9em; line-height: 1.5; }
-        .error { color: #d9534f; }
-        .success { color: #28a745; }
+        /* === WiseLife 專業風格樣式 === */
+        body { font-family: "Microsoft JhengHei", -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; background-color: #f0f2f5; color: #333; }
+        .container { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); max-width: 500px; margin: 0 auto; }
+        h2 { color: #2c3e50; text-align: center; margin-bottom: 25px; font-weight: 600; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #555; font-weight: bold; font-size: 0.95em; }
+        input[type="text"], input[type="email"], input[type="file"] { 
+            width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 16px; transition: border 0.3s;
+        }
+        input:focus { border-color: #00B900; outline: none; }
+        
+        button { 
+            width: 100%; background-color: #00B900; color: white; border: none; padding: 14px; 
+            margin-top: 15px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; 
+            transition: all 0.2s; box-shadow: 0 2px 5px rgba(0,185,0,0.3);
+        }
+        button:hover { background-color: #009900; transform: translateY(-1px); }
+        button:disabled { background-color: #ccc; cursor: not-allowed; transform: none; box-shadow: none; }
+        
+        #status { text-align: center; margin-top: 20px; font-size: 0.9em; line-height: 1.6; word-break: break-all; }
+        .error { color: #d9534f; background: #fde8e8; padding: 10px; border-radius: 5px; display: block; }
+        .success { color: #28a745; background: #e8f5e9; padding: 10px; border-radius: 5px; display: block; }
+        .info { color: #0056b3; background: #e3f2fd; padding: 10px; border-radius: 5px; display: block; }
 
-        /* === 新增進度條樣式 === */
-        .progress-container { width: 100%; background-color: #e0e0e0; border-radius: 5px; margin-top: 15px; display: none; }
-        .progress-bar { width: 0%; height: 10px; background-color: #00B900; border-radius: 5px; transition: width 0.3s; }
-        .progress-text { font-size: 0.8em; text-align: center; margin-top: 5px; color: #666; display: none;}
+        /* 進度條樣式 */
+        .progress-container { width: 100%; background-color: #eee; border-radius: 10px; margin-top: 20px; display: none; overflow: hidden; }
+        .progress-bar { width: 0%; height: 12px; background-color: #00B900; border-radius: 10px; transition: width 0.4s ease; }
+        .progress-text { font-size: 0.85em; text-align: center; margin-top: 8px; color: #666; display: none;}
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>📝 會議語音上傳</h2>
+        <h2>📝 WiseLife 會議語音上傳</h2>
         <form id="uploadForm">
             <div class="form-group">
-                <label for="fileInput">1. 選擇檔案 (上限 25MB)</label>
-                <input type="file" id="fileInput" name="file" accept="audio/*,text/plain,.m4a,.mp3,.txt" required>
+                <label for="fileInput">1. 選擇錄音檔 (上限 25MB)</label>
+                <input type="file" id="fileInput" name="file" accept="audio/*,text/plain,.m4a,.mp3,.wav" required>
             </div>
             
             <div class="form-group">
-                <label for="emailInput">2. 收件 Email (選填)</label>
-                <input type="email" id="emailInput" name="email" placeholder="輸入 Email 以接收 PDF 會議記錄">
+                <label for="emailInput">2. 收件 Email (接收完整報告)</label>
+                <input type="email" id="emailInput" name="email" placeholder="name@example.com" required>
             </div>
 
             <button type="submit" id="submitBtn">
@@ -53,61 +64,67 @@
 
     <script>
         // ==========================================
-        // 設定區
+        // ⚠️ 請修改這裡 (Configuration)
         // ==========================================
         const LIFF_ID = "2008799993-Dq2SOrHq"; 
-        const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting"; // 確保是正式網址
+        const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting"; // 例如 https://xxx.zeabur.app/webhook/process-meeting
         const MAX_FILE_SIZE_MB = 25; 
         // ==========================================
 
-        async function main() {
+        // 初始化 LIFF
+        async function initLiff() {
             try {
                 await liff.init({ liffId: LIFF_ID });
                 if (!liff.isLoggedIn()) {
                     liff.login();
+                } else {
+                    // 自動填入使用者 Email (如果有的話)
+                    const user = await liff.getDecodedIDToken();
+                    if(user && user.email) {
+                        document.getElementById('emailInput').value = user.email;
+                    }
                 }
             } catch (err) {
                 document.getElementById('status').innerHTML = `<span class="error">LIFF 初始化失敗: ${err.message}</span>`;
             }
         }
-        main();
+        initLiff();
 
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            // 取得 DOM 元素
             const btn = document.getElementById('submitBtn');
             const btnText = document.getElementById('btnText');
             const status = document.getElementById('status');
             const fileInput = document.getElementById('fileInput');
             const emailInput = document.getElementById('emailInput');
-            const progressContainer = document.getElementById('progressContainer');
-            const progressBar = document.getElementById('progressBar');
-            const progressText = document.getElementById('progressText');
+            const pContainer = document.getElementById('progressContainer');
+            const pBar = document.getElementById('progressBar');
+            const pText = document.getElementById('progressText');
 
+            // 1. 基礎檢查
             if(fileInput.files.length === 0) {
-                status.innerHTML = '<span class="error">請先選擇檔案</span>';
+                alert("請選擇檔案");
                 return;
             }
-
-            // 檢查檔案大小
             const file = fileInput.files[0];
-            const fileSizeMB = file.size / (1024 * 1024);
-            if (fileSizeMB > MAX_FILE_SIZE_MB) {
-                status.innerHTML = `<span class="error">❌ 檔案過大 (${fileSizeMB.toFixed(2)}MB)！<br>請上傳小於 ${MAX_FILE_SIZE_MB}MB 的檔案。</span>`;
+            if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+                status.innerHTML = `<span class="error">❌ 檔案過大！上限為 ${MAX_FILE_SIZE_MB}MB</span>`;
                 return;
             }
 
-            // 鎖定介面 & 顯示進度條
+            // 2. 鎖定介面
             btn.disabled = true;
-            btnText.textContent = "上傳中...";
-            status.textContent = "";
-            progressContainer.style.display = "block";
-            progressText.style.display = "block";
-            progressBar.style.width = "0%";
-            progressText.textContent = "0%";
+            status.innerHTML = "";
+            pContainer.style.display = "block";
+            pText.style.display = "block";
+            pBar.style.width = "0%";
+            pText.textContent = "準備上傳...";
 
+            // 3. 準備資料
             const formData = new FormData();
-            formData.append('file', file);
+            formData.append('file', file); // 對應 N8N 的 binary property
             formData.append('email', emailInput.value);
 
             try {
@@ -116,72 +133,71 @@
                     formData.append('userId', profile.userId);
                     formData.append('displayName', profile.displayName);
                 }
-            } catch (e) { console.warn('無法取得 LINE 個人資料', e); }
+            } catch (e) { console.warn('無法取得個資', e); }
 
-            // 改用 XMLHttpRequest 以監聽進度
+            // 4. 發送請求 (使用 XMLHttpRequest 以監聽進度)
             const xhr = new XMLHttpRequest();
             xhr.open('POST', N8N_WEBHOOK_URL, true);
-            
-            // 設定超時時間 (例如 180秒)
-            xhr.timeout = 180000; 
+            xhr.timeout = 180000; // 設定 3 分鐘超時
 
-            // 監聽上傳進度
+            // 進度條事件
             xhr.upload.onprogress = function(event) {
                 if (event.lengthComputable) {
-                    const percentComplete = Math.round((event.loaded / event.total) * 100);
-                    progressBar.style.width = percentComplete + "%";
-                    progressText.textContent = `上傳中: ${percentComplete}%`;
-                    
-                    if (percentComplete === 100) {
-                        btnText.textContent = "AI 思考中...";
-                        progressText.textContent = "✅ 上傳完成，正在等待 AI 分析 (請勿關閉)...";
-                        status.textContent = "伺服器正在處理語音轉文字與摘要，這可能需要 30~60 秒...";
+                    const percent = Math.round((event.loaded / event.total) * 100);
+                    pBar.style.width = percent + "%";
+                    pText.textContent = `上傳中: ${percent}%`;
+                    if (percent === 100) {
+                        btnText.textContent = "AI 正在思考中...";
+                        pText.textContent = "✅ 上傳完成，正在生成會議記錄 (請勿關閉視窗)...";
+                        status.innerHTML = "<span class='info'>⏳ 伺服器處理中，這可能需要 30~60 秒...</span>";
                     }
                 }
             };
 
-            // 請求完成
+            // 成功回調
             xhr.onload = async function() {
                 if (xhr.status === 200) {
                     try {
-                        const data = JSON.parse(xhr.responseText);
-                        status.innerHTML = '<span class="success">✅ 分析完成！結果已傳送至 LINE。</span>';
+                        const res = JSON.parse(xhr.responseText);
+                        status.innerHTML = `<span class="success">✅ 分析完成！</span>`;
                         btnText.textContent = "完成";
                         
+                        // LIFF 回傳訊息到聊天室
                         if (liff.isInClient()) {
-                            // 嘗試回傳訊息
-                            try {
-                                const msgText = `📝 會議記錄摘要：\n\n${data.summary || "摘要已生成 (請查看郵件)"}\n\n(詳細 PDF 已寄至信箱)`;
-                                await liff.sendMessages([{ type: 'text', text: msgText }]);
-                            } catch (msgError) {
-                                console.log("無法自動發送訊息", msgError);
-                            }
-                            liff.closeWindow();
+                            const summaryText = res.summary || "會議記錄已生成";
+                            await liff.sendMessages([{ 
+                                type: 'text', 
+                                text: `📝 會議摘要：\n\n${summaryText}\n\n(完整版已寄至信箱)` 
+                            }]);
+                            liff.closeWindow(); // 成功後關閉視窗
                         } else {
-                            // 外部瀏覽器
-                            status.innerText = data.summary || "處理完成";
+                            // 外部瀏覽器測試用
+                            alert("成功！摘要：" + res.summary);
                         }
                     } catch (e) {
-                        status.innerHTML = '<span class="error">❌ 格式錯誤: 無法解析伺服器回傳值</span>';
-                        console.error(e);
+                        status.innerHTML = `<span class="error">❌ 資料解析錯誤: ${e.message}</span>`;
                     }
                 } else {
-                    status.innerHTML = `<span class="error">❌ 伺服器錯誤 (Code: ${xhr.status})</span>`;
+                    status.innerHTML = `<span class="error">❌ 伺服器錯誤 (${xhr.status}): ${xhr.statusText}<br>請檢查 N8N 執行紀錄。</span>`;
                     btn.disabled = false;
-                    btnText.textContent = "再試一次";
+                    btnText.textContent = "重試";
                 }
             };
 
-            // 請求錯誤
+            // 錯誤回調 (包含 CORS 與 網路斷線)
             xhr.onerror = function() {
-                status.innerHTML = '<span class="error">❌ 網路連線錯誤，請檢查網路狀況。</span>';
+                let errorMsg = "❌ 網路連線錯誤";
+                if (xhr.status === 0) {
+                    errorMsg += " (可能是 CORS 跨域被阻擋，請檢查 N8N Webhook 設定)";
+                }
+                status.innerHTML = `<span class="error">${errorMsg}<br>Status: ${xhr.status}</span>`;
                 btn.disabled = false;
-                btnText.textContent = "再試一次";
+                btnText.textContent = "重試";
             };
 
-            // 請求超時
+            // 超時回調
             xhr.ontimeout = function() {
-                status.innerHTML = '<span class="error">⚠️ 請求逾時：AI 處理時間過長。<br>但請放心，Email 可能稍後仍會寄達。</span>';
+                status.innerHTML = `<span class="error">⚠️ 請求逾時 (Timeout)<br>AI 處理時間過長，但 Email 可能稍後會收到。</span>`;
                 btn.disabled = false;
                 btnText.textContent = "重試";
             };
