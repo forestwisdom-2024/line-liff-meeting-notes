@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WiseLife 智慧會議助手 v2.0</title>
+    <title>WiseLife 智慧會議助手 v2.2</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         /* === WiseLife v2.0 樣式 === */
@@ -34,7 +34,6 @@
         #status { text-align: center; margin-top: 20px; font-size: 0.95em; line-height: 1.6; }
         .error { color: #d63031; background: #ffebeb; padding: 10px; border-radius: 8px; display: block; border: 1px solid #ffcccc; }
         .success { color: #00b894; background: #e3fdf5; padding: 10px; border-radius: 8px; display: block; border: 1px solid #ccfbf1; }
-        .info { color: #0984e3; background: #e1f5fe; padding: 10px; border-radius: 8px; display: block; }
 
         .progress-container { width: 100%; background-color: #f1f1f1; border-radius: 10px; margin-top: 20px; display: none; overflow: hidden; height: 10px; }
         .progress-bar { width: 0%; height: 100%; background-color: #00B900; border-radius: 10px; transition: width 0.3s ease; }
@@ -43,7 +42,7 @@
 </head>
 <body>
     <div class="container">
-        <div class="version-tag">Ver 2.1.0</div>
+        <div class="version-tag">Ver 2.2.0 (Fix)</div>
 
         <h2>🎙️ WiseLife 會議助理</h2>
         <form id="uploadForm">
@@ -72,26 +71,29 @@
 
     <script>
         // ==========================================
-        // 設定區
+        // ⚠️ 請務必確認這裡有換成您自己的資料
         // ==========================================
-        const LIFF_ID = "2008799993-Dq2SOrHq"; 
-        const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting"; 
+        const LIFF_ID = "2008799993-Dq2SOrHq";  // <--- 記得換回你的 ID
+        const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting"; // <--- 記得換回你的 Webhook
         const MAX_FILE_SIZE_MB = 25; 
         // ==========================================
 
+        // 初始化 LIFF (如果失敗也不會卡住)
         async function initLiff() {
             try {
-                await liff.init({ liffId: LIFF_ID });
-                if (!liff.isLoggedIn()) {
-                    liff.login();
-                } else {
-                    const user = await liff.getDecodedIDToken();
-                    if(user && user.email) {
-                        document.getElementById('emailInput').value = user.email;
+                if(typeof liff !== 'undefined'){
+                    await liff.init({ liffId: LIFF_ID });
+                    if (!liff.isLoggedIn()) {
+                        liff.login();
+                    } else {
+                        const user = await liff.getDecodedIDToken();
+                        if(user && user.email) {
+                            document.getElementById('emailInput').value = user.email;
+                        }
                     }
                 }
             } catch (err) {
-                console.error(err);
+                console.log("LIFF Init failed (maybe local testing):", err);
             }
         }
         initLiff();
@@ -110,7 +112,6 @@
 
             if(fileInput.files.length === 0) { alert("請選擇檔案"); return; }
             
-            // 5. 大檔 HTML 處理 (前端攔截)
             const file = fileInput.files[0];
             const fileSizeMB = file.size / (1024 * 1024);
             if (fileSizeMB > MAX_FILE_SIZE_MB) {
@@ -118,7 +119,6 @@
                 return;
             }
 
-            // 鎖定 UI
             btn.disabled = true;
             status.innerHTML = "";
             pContainer.style.display = "block";
@@ -128,11 +128,11 @@
 
             const formData = new FormData();
             formData.append('file', file);
-            // 處理 Email 選填邏輯 (若為空字串也傳送，後端判斷)
             formData.append('email', emailInput.value);
 
+            // 嘗試獲取 userId，失敗也沒關係
             try {
-                if (liff.isLoggedIn()) {
+                if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
                     const profile = await liff.getProfile();
                     formData.append('userId', profile.userId);
                 }
@@ -140,7 +140,7 @@
 
             const xhr = new XMLHttpRequest();
             xhr.open('POST', N8N_WEBHOOK_URL, true);
-            xhr.timeout = 300000; // 5分鐘 (文字處理快，語音處理慢)
+            xhr.timeout = 300000; 
 
             xhr.upload.onprogress = function(event) {
                 if (event.lengthComputable) {
@@ -161,22 +161,27 @@
                         status.innerHTML = `<span class="success">✅ 分析完成！</span>`;
                         btnText.textContent = "完成";
                         
-                        // 3. LIFF 回傳摘要
-                        if (liff.isInClient()) {
-                            const summaryText = res.summary || "摘要生成完畢";
-                            // 檢查是否有 email，決定提示訊息
-                            const emailNote = emailInput.value ? "\n(完整 HTML 報告已寄出)" : "\n(未填寫 Email，僅顯示摘要)";
-                            
+                        const summaryText = res.summary || "摘要生成完畢";
+                        const emailNote = emailInput.value ? "\n(完整 HTML 報告已寄出)" : "\n(未填寫 Email)";
+
+                        // === 關鍵修正區：安全檢查 LIFF 是否存在 ===
+                        if (typeof liff !== 'undefined' && liff.isInClient && liff.isInClient()) {
+                            // 在 LINE 裡面：傳送訊息並關閉
                             await liff.sendMessages([{ 
                                 type: 'text', 
                                 text: `📝 WiseLife 會議摘要：\n\n${summaryText}\n${emailNote}` 
                             }]);
                             liff.closeWindow();
                         } else {
-                            alert("摘要：" + res.summary);
+                            // 在一般瀏覽器 (Safari/Chrome)：用彈窗顯示
+                            alert("📝 摘要結果：\n\n" + summaryText);
                         }
+                        // ========================================
+
                     } catch (e) {
                         status.innerHTML = `<span class="error">JSON 錯誤: ${e.message}</span>`;
+                        // 雖然報錯，但因為成功了，我們還是印出原始回應方便查看
+                        console.log("Raw Response:", xhr.responseText);
                     }
                 } else {
                     status.innerHTML = `<span class="error">Server Error: ${xhr.status}</span>`;
