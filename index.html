@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WiseLife 智慧會議助手 v2.2</title>
+    <title>WiseLife 智慧會議助手 v2.3</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        /* === WiseLife v2.0 樣式 === */
+        /* === WiseLife v2.3 樣式 === */
         body { font-family: "Microsoft JhengHei", sans-serif; padding: 20px; background-color: #f4f6f9; color: #333; }
         .container { background: white; padding: 30px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; position: relative; }
         
@@ -42,13 +42,15 @@
 </head>
 <body>
     <div class="container">
-        <div class="version-tag">Ver 2.2.0 (Fix)</div>
+        <div class="version-tag">Ver 2.3.0 (Office Support)</div>
 
         <h2>🎙️ WiseLife 會議助理</h2>
         <form id="uploadForm">
             <div class="form-group">
-                <label for="fileInput">檔案上傳 <span class="sub-label">(語音 或 文字檔)</span></label>
-                <input type="file" id="fileInput" name="file" accept="audio/*,text/plain,.m4a,.mp3,.wav,.txt,.md" required>
+                <label for="fileInput">檔案上傳 <span class="sub-label">(語音/文字/Office)</span></label>
+                <input type="file" id="fileInput" name="file" 
+                       accept="audio/*,text/plain,.m4a,.mp3,.wav,.txt,.md,.pdf,.doc,.docx,.xls,.xlsx,.csv" 
+                       required>
                 <small style="color:#888; display:block; margin-top:5px;">⚠️ 限制：單檔 < 25MB</small>
             </div>
             
@@ -78,7 +80,6 @@
         const MAX_FILE_SIZE_MB = 25; 
         // ==========================================
 
-        // 初始化 LIFF (如果失敗也不會卡住)
         async function initLiff() {
             try {
                 if(typeof liff !== 'undefined'){
@@ -130,7 +131,6 @@
             formData.append('file', file);
             formData.append('email', emailInput.value);
 
-            // 嘗試獲取 userId，失敗也沒關係
             try {
                 if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
                     const profile = await liff.getProfile();
@@ -164,23 +164,17 @@
                         const summaryText = res.summary || "摘要生成完畢";
                         const emailNote = emailInput.value ? "\n(完整 HTML 報告已寄出)" : "\n(未填寫 Email)";
 
-                        // === 關鍵修正區：安全檢查 LIFF 是否存在 ===
                         if (typeof liff !== 'undefined' && liff.isInClient && liff.isInClient()) {
-                            // 在 LINE 裡面：傳送訊息並關閉
                             await liff.sendMessages([{ 
                                 type: 'text', 
                                 text: `📝 WiseLife 會議摘要：\n\n${summaryText}\n${emailNote}` 
                             }]);
                             liff.closeWindow();
                         } else {
-                            // 在一般瀏覽器 (Safari/Chrome)：用彈窗顯示
                             alert("📝 摘要結果：\n\n" + summaryText);
                         }
-                        // ========================================
-
                     } catch (e) {
                         status.innerHTML = `<span class="error">JSON 錯誤: ${e.message}</span>`;
-                        // 雖然報錯，但因為成功了，我們還是印出原始回應方便查看
                         console.log("Raw Response:", xhr.responseText);
                     }
                 } else {
