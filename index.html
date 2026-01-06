@@ -110,7 +110,7 @@
         const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting";
         
         // 🔥 關鍵修改：把 chunk 從 20MB 改成 5MB
-        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB 每段 (Base64 後約 6.7MB)
+        const CHUNK_SIZE = 10 * 1024 * 1024; // 5MB 每段 (Base64 後約 6.7MB)
         const LARGE_FILE_THRESHOLD = 24 * 1024 * 1024; // 24MB 以上才分段
         // ==========================================
 
