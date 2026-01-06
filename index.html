@@ -3,15 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WiseLife 會議助理 v3.2</title>
+    <title>WiseLife 會議助理 v3.3 (Debug)</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        /* === WiseLife v3.2 視覺升級 (修正大檔案回應等待) === */
-        :root { --primary: #00B900; --processing: #3498db; --warning: #f39c12; }
+        :root { --primary: #00B900; --processing: #3498db; --warning: #f39c12; --debug: #9b59b6; }
         body { font-family: "Microsoft JhengHei", sans-serif; padding: 20px; background-color: #f4f6f9; color: #333; }
         .container { background: white; padding: 30px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; position: relative; }
         
-        .version-tag { position: absolute; top: 15px; right: 15px; font-size: 0.75rem; color: #aaa; background: #eee; padding: 4px 8px; border-radius: 4px; }
+        .version-tag { position: absolute; top: 15px; right: 15px; font-size: 0.75rem; color: white; background: var(--debug); padding: 4px 8px; border-radius: 4px; }
         h2 { color: #2c3e50; text-align: center; margin-bottom: 25px; font-weight: 700; }
 
         .form-group { margin-bottom: 20px; }
@@ -23,19 +22,12 @@
         }
         input:focus { border-color: var(--primary); background: #fff; outline: none; }
         
-        /* 檔案資訊提示 */
         .file-info { 
-            margin-top: 10px; 
-            padding: 10px; 
-            background: #f8f9fa; 
-            border-radius: 8px; 
-            font-size: 0.85rem; 
-            color: #666;
-            display: none;
+            margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px; 
+            font-size: 0.85rem; color: #666; display: none;
         }
         .file-info.large-file { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
         
-        /* 按鈕樣式 */
         button { 
             width: 100%; background: linear-gradient(135deg, #00B900 0%, #009900 100%); color: white; border: none; padding: 16px; 
             margin-top: 10px; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; 
@@ -44,55 +36,71 @@
         button:disabled { background: #ccc; cursor: not-allowed; box-shadow: none; transform: none; }
         button.close-btn { background: #7f8c8d; margin-top: 10px; display: none; }
 
-        /* 進度條區域 */
         .progress-wrapper { margin-top: 25px; display: none; }
         .progress-container { width: 100%; background-color: #f1f1f1; border-radius: 10px; overflow: hidden; height: 12px; }
         .progress-bar { width: 0%; height: 100%; background-color: var(--primary); border-radius: 10px; transition: width 0.3s ease; }
         
-        /* 呼吸燈動畫 (Processing 狀態) */
         .progress-bar.processing {
-            width: 100% !important;
-            background-color: var(--processing);
+            width: 100% !important; background-color: var(--processing);
             background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
-            background-size: 1rem 1rem;
-            animation: progress-bar-stripes 1s linear infinite;
+            background-size: 1rem 1rem; animation: progress-bar-stripes 1s linear infinite;
         }
-        
-        /* 合併中的橘色動畫 */
-        .progress-bar.merging {
-            width: 100% !important;
-            background-color: var(--warning);
-            background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
-            background-size: 1rem 1rem;
-            animation: progress-bar-stripes 0.5s linear infinite;
-        }
-        
         @keyframes progress-bar-stripes { from { background-position: 1rem 0; } to { background-position: 0 0; } }
 
         .status-text { text-align: center; margin-top: 10px; font-size: 0.9rem; color: #666; font-weight: bold; }
         
-        /* 狀態訊息 */
         .message-box { margin-top: 20px; padding: 15px; border-radius: 8px; text-align: center; display: none; }
         .success { background: #e3fdf5; color: #00b894; border: 1px solid #ccfbf1; }
         .error { background: #ffebeb; color: #d63031; border: 1px solid #ffcccc; }
 
-        /* Debug 區域 (可選擇顯示) */
-        .debug-info {
-            margin-top: 15px;
-            padding: 10px;
-            background: #f0f0f0;
+        /* ===== DEBUG 區域 (重點！) ===== */
+        .debug-panel {
+            margin-top: 20px;
+            padding: 15px;
+            background: #2c3e50;
             border-radius: 8px;
+            color: #ecf0f1;
+            font-family: 'Courier New', monospace;
             font-size: 0.75rem;
-            color: #666;
-            display: none;
-            max-height: 150px;
+            max-height: 300px;
             overflow-y: auto;
+        }
+        .debug-panel h4 {
+            margin: 0 0 10px 0;
+            color: #9b59b6;
+            font-size: 0.85rem;
+        }
+        .debug-line {
+            margin: 3px 0;
+            padding: 3px 5px;
+            border-left: 3px solid #3498db;
+            background: rgba(52, 152, 219, 0.1);
+        }
+        .debug-line.error {
+            border-left-color: #e74c3c;
+            background: rgba(231, 76, 60, 0.1);
+        }
+        .debug-line.success {
+            border-left-color: #2ecc71;
+            background: rgba(46, 204, 113, 0.1);
+        }
+        .debug-line.warn {
+            border-left-color: #f39c12;
+            background: rgba(243, 156, 18, 0.1);
+        }
+        .debug-response {
+            margin-top: 10px;
+            padding: 10px;
+            background: #1a252f;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            word-break: break-all;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="version-tag">Ver 3.2 (修正版)</div>
+        <div class="version-tag">🔍 DEBUG v3.3</div>
 
         <h2>🎙️ WiseLife 會議助理</h2>
         <form id="uploadForm">
@@ -100,7 +108,7 @@
                 <label>1. 檔案上傳 <span class="sub-label">(文件/錄音)</span></label>
                 <input type="file" id="fileInput" name="file" 
                        accept="audio/*,text/plain,.m4a,.mp3,.wav,.txt,.md,.pdf,.doc,.docx,.xls,.xlsx,.csv" required>
-                <small style="color:#aaa; display:block; margin-top:5px;">📂 支援 PDF, Word, Excel, 錄音檔 (支援大檔案)</small>
+                <small style="color:#aaa; display:block; margin-top:5px;">📂 支援 PDF, Word, Excel, 錄音檔</small>
                 <div id="fileInfo" class="file-info"></div>
             </div>
             
@@ -122,8 +130,11 @@
 
         <div id="resultMsg" class="message-box"></div>
         
-        <!-- Debug 資訊 (開發時可打開) -->
-        <div id="debugInfo" class="debug-info"></div>
+        <!-- ===== DEBUG 面板 ===== -->
+        <div class="debug-panel" id="debugPanel">
+            <h4>🔍 Debug Console</h4>
+            <div id="debugLog"></div>
+        </div>
     </div>
 
     <script>
@@ -132,43 +143,67 @@
         // ==========================================
         const LIFF_ID = "2008799993-Dq2SOrHq"; 
         const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting";
-        const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB 每段
-        const LARGE_FILE_THRESHOLD = 25 * 1024 * 1024; // 25MB
-        const DEBUG_MODE = false; // 設為 true 可看到詳細 log
+        const CHUNK_SIZE = 20 * 1024 * 1024;
+        const LARGE_FILE_THRESHOLD = 25 * 1024 * 1024;
         // ==========================================
 
-        // Debug 輔助函數
-        function debugLog(message) {
-            console.log(`[WiseLife] ${message}`);
-            if (DEBUG_MODE) {
-                const debugDiv = document.getElementById('debugInfo');
-                debugDiv.style.display = 'block';
-                debugDiv.innerHTML += `${new Date().toLocaleTimeString()} - ${message}<br>`;
-                debugDiv.scrollTop = debugDiv.scrollHeight;
-            }
+        // ===== Debug 函數 =====
+        function debugLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.getElementById('debugLog');
+            const line = document.createElement('div');
+            line.className = `debug-line ${type}`;
+            line.textContent = `[${timestamp}] ${message}`;
+            logDiv.appendChild(line);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
         }
 
-        // 初始化 LIFF
+        function debugResponse(title, data) {
+            const logDiv = document.getElementById('debugLog');
+            
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'debug-line warn';
+            titleDiv.textContent = `📦 ${title}:`;
+            logDiv.appendChild(titleDiv);
+            
+            const responseDiv = document.createElement('div');
+            responseDiv.className = 'debug-response';
+            try {
+                responseDiv.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+            } catch (e) {
+                responseDiv.textContent = String(data);
+            }
+            logDiv.appendChild(responseDiv);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        // ===== 初始化 LIFF =====
         async function initLiff() {
             try {
+                debugLog('初始化 LIFF...', 'info');
                 if(typeof liff !== 'undefined'){
                     await liff.init({ liffId: LIFF_ID });
                     if (!liff.isLoggedIn()) {
+                        debugLog('用戶未登入，導向登入頁', 'warn');
                         liff.login();
                     } else {
                         const user = await liff.getDecodedIDToken();
+                        debugLog(`LIFF 初始化成功，用戶: ${user?.email || '無 email'}`, 'success');
                         if(user && user.email) {
                             document.getElementById('emailInput').value = user.email;
                         }
                     }
+                } else {
+                    debugLog('LIFF SDK 未載入', 'error');
                 }
             } catch (err) {
-                console.error("LIFF Init Error:", err);
+                debugLog(`LIFF 初始化失敗: ${err.message}`, 'error');
             }
         }
         initLiff();
 
-        // 檔案選擇時顯示資訊
+        // ===== 檔案選擇 =====
         document.getElementById('fileInput').addEventListener('change', function(e) {
             const file = e.target.files[0];
             const fileInfo = document.getElementById('fileInfo');
@@ -180,15 +215,20 @@
                 fileInfo.textContent = `📄 ${file.name} (${sizeMB} MB)`;
                 fileInfo.style.display = 'block';
                 
+                debugLog(`選擇檔案: ${file.name}, 大小: ${sizeMB} MB, MIME: ${file.type}`, 'info');
+                
                 if (isLarge) {
                     fileInfo.classList.add('large-file');
                     fileInfo.textContent += ' - 將使用分段上傳模式';
+                    debugLog(`檔案超過 ${LARGE_FILE_THRESHOLD / 1024 / 1024}MB，將使用 chunked 上傳`, 'warn');
                 } else {
                     fileInfo.classList.remove('large-file');
+                    debugLog('檔案大小正常，將使用 direct 上傳', 'info');
                 }
             }
         });
 
+        // ===== 表單提交 =====
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -202,7 +242,9 @@
             
             const file = fileInput.files[0];
             
-            // 決定上傳策略
+            debugLog(`開始上傳: ${file.name}`, 'info');
+            debugLog(`目標 URL: ${N8N_WEBHOOK_URL}`, 'info');
+            
             if (file.size > LARGE_FILE_THRESHOLD) {
                 await uploadLargeFile(file, emailInput.value);
             } else {
@@ -210,7 +252,7 @@
             }
         });
 
-        // ===== 小檔案上傳 (原有邏輯) =====
+        // ===== 小檔案上傳 (FormData) =====
         async function uploadSmallFile(file, email) {
             const submitBtn = document.getElementById('submitBtn');
             const closeBtn = document.getElementById('closeBtn');
@@ -225,6 +267,8 @@
             progressWrapper.style.display = "block";
             closeBtn.style.display = "none";
 
+            debugLog('使用 FormData 直接上傳 (small file)', 'info');
+
             const formData = new FormData();
             formData.append('file', file);
             formData.append('email', email);
@@ -234,8 +278,14 @@
                 if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
                     const profile = await liff.getProfile();
                     formData.append('userId', profile.userId);
+                    debugLog(`附加 userId: ${profile.userId}`, 'info');
                 }
-            } catch (e) {}
+            } catch (e) {
+                debugLog(`無法取得 LINE profile: ${e.message}`, 'warn');
+            }
+
+            // 顯示將要發送的資料
+            debugLog(`FormData 內容: file=${file.name}, email=${email}, uploadType=direct`, 'info');
 
             const xhr = new XMLHttpRequest();
             xhr.open('POST', N8N_WEBHOOK_URL, true);
@@ -249,31 +299,40 @@
                     statusText.textContent = `📤 檔案上傳中... ${percent}%`;
 
                     if (percent === 100) {
-                        statusText.textContent = "🧠 AI 大腦運轉中 (請稍候 30~60 秒)...";
+                        debugLog('檔案上傳完成，等待伺服器回應...', 'info');
+                        statusText.textContent = "🧠 AI 大腦運轉中...";
                         progressBar.classList.add("processing");
                     }
                 }
             };
 
             xhr.onload = async function() {
+                debugLog(`收到回應: HTTP ${xhr.status}`, xhr.status === 200 ? 'success' : 'error');
+                debugResponse('Response Headers', xhr.getAllResponseHeaders());
+                debugResponse('Response Body', xhr.responseText);
+
                 if (xhr.status === 200) {
                     await handleSuccess(xhr.responseText, submitBtn, closeBtn, resultMsg, statusText);
                 } else {
-                    showError(`伺服器錯誤: ${xhr.status}`, submitBtn, closeBtn, resultMsg, progressBar, statusText);
+                    showError(`伺服器錯誤: HTTP ${xhr.status}`, submitBtn, closeBtn, resultMsg, progressBar, statusText);
                 }
             };
 
             xhr.onerror = function() { 
-                showError("網路連線失敗，請檢查網路。", submitBtn, closeBtn, resultMsg, progressBar, statusText); 
+                debugLog('XHR 網路錯誤 (onerror)', 'error');
+                showError("網路連線失敗", submitBtn, closeBtn, resultMsg, progressBar, statusText); 
             };
+            
             xhr.ontimeout = function() { 
-                showError("處理逾時，請確認檔案是否過大。", submitBtn, closeBtn, resultMsg, progressBar, statusText); 
+                debugLog('XHR 逾時 (ontimeout)', 'error');
+                showError("處理逾時", submitBtn, closeBtn, resultMsg, progressBar, statusText); 
             };
 
+            debugLog('發送 XHR 請求...', 'info');
             xhr.send(formData);
         }
 
-        // ===== 大檔案分段上傳 (修正版 v3.2) =====
+        // ===== 大檔案分段上傳 (JSON) =====
         async function uploadLargeFile(file, email) {
             const submitBtn = document.getElementById('submitBtn');
             const closeBtn = document.getElementById('closeBtn');
@@ -287,13 +346,14 @@
             resultMsg.style.display = "none";
             progressWrapper.style.display = "block";
             closeBtn.style.display = "none";
-            progressBar.classList.remove("processing", "merging");
+            progressBar.classList.remove("processing");
 
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
             const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             
-            debugLog(`開始分段上傳: ${file.name}, 共 ${totalChunks} 段, SessionID: ${sessionId}`);
-            statusText.textContent = `準備分段上傳 (共 ${totalChunks} 段)...`;
+            debugLog(`使用 JSON 分段上傳 (large file)`, 'info');
+            debugLog(`Session ID: ${sessionId}`, 'info');
+            debugLog(`總分段數: ${totalChunks}`, 'info');
 
             try {
                 let userId = '';
@@ -302,26 +362,36 @@
                     userId = profile.userId;
                 }
 
-                let lastResponse = null;
-
                 // ===== 逐段上傳 =====
                 for (let i = 0; i < totalChunks; i++) {
                     const start = i * CHUNK_SIZE;
                     const end = Math.min(start + CHUNK_SIZE, file.size);
                     const chunk = file.slice(start, end);
-                    const isLastChunk = (i === totalChunks - 1);
 
-                    // 更新進度 (上傳階段佔 0-70%)
-                    const uploadPercent = Math.round((i / totalChunks) * 70);
-                    progressBar.style.width = uploadPercent + "%";
-                    statusText.textContent = `📤 上傳第 ${i + 1}/${totalChunks} 段 (${uploadPercent}%)`;
-                    debugLog(`上傳分段 ${i + 1}/${totalChunks}`);
+                    const percent = Math.round(((i + 1) / totalChunks) * 100);
+                    progressBar.style.width = percent + "%";
+                    statusText.textContent = `📤 上傳第 ${i + 1}/${totalChunks} 段`;
 
-                    // 將分段轉為 Base64
+                    debugLog(`上傳分段 ${i + 1}/${totalChunks} (${start}-${end} bytes)`, 'info');
+
                     const base64Chunk = await blobToBase64(chunk);
 
-                    // 發送這一段 (帶有重試機制)
-                    const response = await fetchWithRetry(N8N_WEBHOOK_URL, {
+                    const payload = {
+                        email: email,
+                        userId: userId,
+                        fileName: file.name,
+                        sessionId: sessionId,
+                        chunkIndex: i,
+                        totalChunks: totalChunks,
+                        chunkData: base64Chunk.substring(0, 50) + '... (truncated)',  // Debug 用，不顯示完整 base64
+                        mimeType: file.type,
+                        uploadType: 'chunked'
+                    };
+                    
+                    debugLog(`發送 Payload (truncated): ${JSON.stringify({...payload, chunkData: '[BASE64]'})}`, 'info');
+
+                    // 實際發送完整資料
+                    const response = await fetch(N8N_WEBHOOK_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -335,162 +405,59 @@
                             mimeType: file.type,
                             uploadType: 'chunked'
                         })
-                    }, 3); // 最多重試 3 次
+                    });
 
-                    // 解析 n8n 回應
-                    const responseData = await response.json();
-                    debugLog(`分段 ${i + 1} 回應: ${JSON.stringify(responseData)}`);
-                    
-                    lastResponse = responseData;
+                    debugLog(`分段 ${i + 1} 回應: HTTP ${response.status}`, response.ok ? 'success' : 'error');
 
-                    // 檢查回應狀態
-                    if (responseData.status === 'error') {
-                        throw new Error(responseData.message || '伺服器處理失敗');
+                    // 讀取回應內容
+                    const responseText = await response.text();
+                    debugResponse(`分段 ${i + 1} Response`, responseText);
+
+                    if (!response.ok) {
+                        throw new Error(`分段 ${i + 1} 上傳失敗: HTTP ${response.status}\n${responseText}`);
                     }
 
-                    // 如果不是最後一段，短暫延遲避免過載
-                    if (!isLastChunk) {
-                        await sleep(300);
+                    // 解析回應
+                    try {
+                        const responseData = JSON.parse(responseText);
+                        debugLog(`分段 ${i + 1} 解析成功: ${JSON.stringify(responseData)}`, 'success');
+                        
+                        // 如果是最後一段且有最終結果
+                        if (i === totalChunks - 1 && responseData.status === 'success') {
+                            await handleSuccess(responseText, submitBtn, closeBtn, resultMsg, statusText);
+                            return;
+                        }
+                    } catch (parseErr) {
+                        debugLog(`分段 ${i + 1} JSON 解析失敗: ${parseErr.message}`, 'warn');
                     }
+
+                    await sleep(300);
                 }
 
-                // ===== 所有分段上傳完成 =====
-                progressBar.style.width = "70%";
-                progressBar.classList.add("merging");
-                statusText.textContent = "🔄 伺服器合併分段中...";
-                debugLog("所有分段已上傳，等待伺服器處理...");
-
-                // ===== 等待 n8n 完成處理 =====
-                // 檢查最後一個回應是否已經包含最終結果
-                if (lastResponse && lastResponse.status === 'success' && lastResponse.summary) {
-                    // n8n 已經處理完成，直接顯示結果
-                    debugLog("n8n 已回傳最終結果");
-                    progressBar.style.width = "100%";
-                    progressBar.classList.remove("merging");
-                    progressBar.classList.add("processing");
-                    statusText.textContent = "✅ 處理完成！";
-                    
-                    await handleSuccess(JSON.stringify(lastResponse), submitBtn, closeBtn, resultMsg, statusText);
-                    
-                } else if (lastResponse && lastResponse.readyForProcessing === true) {
-                    // n8n 正在處理中，需要等待
-                    debugLog("n8n 正在處理中，開始輪詢...");
-                    statusText.textContent = "🧠 AI 分析中 (大檔案需要較長時間)...";
-                    progressBar.classList.remove("merging");
-                    progressBar.classList.add("processing");
-                    
-                    // 等待處理完成 (最長等待 5 分鐘)
-                    const finalResult = await waitForProcessingComplete(sessionId, 300000);
-                    
-                    if (finalResult) {
-                        await handleSuccess(JSON.stringify(finalResult), submitBtn, closeBtn, resultMsg, statusText);
-                    } else {
-                        // 如果輪詢失敗，但上傳成功，顯示部分成功訊息
-                        resultMsg.innerHTML = `<strong>✅ 上傳完成！</strong><br>檔案已送出處理，結果將發送至您的 Email。`;
-                        resultMsg.className = "message-box success";
-                        resultMsg.style.display = "block";
-                        submitBtn.textContent = "上傳完成";
-                        closeBtn.style.display = "block";
-                    }
-                    
-                } else {
-                    // 假設處理中，顯示上傳成功
-                    debugLog("無法確認處理狀態，假設處理中...");
-                    progressBar.style.width = "100%";
-                    progressBar.classList.remove("merging");
-                    progressBar.classList.add("processing");
-                    statusText.textContent = "🧠 AI 處理中，結果將發送至 Email...";
-                    
-                    // 等待一段時間讓使用者知道正在處理
-                    await sleep(3000);
-                    
-                    resultMsg.innerHTML = `<strong>✅ 上傳完成！</strong><br>大檔案處理需要較長時間，完成後將發送至您的 Email。`;
-                    resultMsg.className = "message-box success";
-                    resultMsg.style.display = "block";
-                    submitBtn.textContent = "上傳完成";
-                    closeBtn.style.display = "block";
-                }
+                // 所有分段上傳完成
+                progressBar.style.width = "100%";
+                progressBar.classList.add("processing");
+                statusText.textContent = "✅ 上傳完成，等待處理...";
+                
+                debugLog('所有分段上傳完成', 'success');
+                
+                resultMsg.innerHTML = `<strong>✅ 上傳完成！</strong><br>處理中，結果將發送至 Email。`;
+                resultMsg.className = "message-box success";
+                resultMsg.style.display = "block";
+                submitBtn.textContent = "上傳完成";
+                closeBtn.style.display = "block";
 
             } catch (error) {
-                debugLog(`錯誤: ${error.message}`);
+                debugLog(`上傳錯誤: ${error.message}`, 'error');
                 showError(`上傳失敗: ${error.message}`, submitBtn, closeBtn, resultMsg, progressBar, statusText);
             }
-        }
-
-        // ===== 帶重試機制的 fetch =====
-        async function fetchWithRetry(url, options, maxRetries = 3) {
-            let lastError;
-            
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    const response = await fetch(url, {
-                        ...options,
-                        // 大檔案分段需要較長的超時時間
-                        signal: AbortSignal.timeout(120000) // 2 分鐘超時
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-                    
-                    return response;
-                    
-                } catch (error) {
-                    lastError = error;
-                    debugLog(`第 ${attempt} 次嘗試失敗: ${error.message}`);
-                    
-                    if (attempt < maxRetries) {
-                        // 指數退避：第1次等1秒，第2次等2秒，第3次等4秒
-                        const waitTime = Math.pow(2, attempt - 1) * 1000;
-                        debugLog(`等待 ${waitTime}ms 後重試...`);
-                        await sleep(waitTime);
-                    }
-                }
-            }
-            
-            throw lastError;
-        }
-
-        // ===== 等待處理完成 (輪詢機制) =====
-        async function waitForProcessingComplete(sessionId, maxWaitTime = 300000) {
-            const startTime = Date.now();
-            const pollInterval = 5000; // 每 5 秒檢查一次
-            
-            debugLog(`開始輪詢處理狀態，最長等待 ${maxWaitTime / 1000} 秒`);
-            
-            while (Date.now() - startTime < maxWaitTime) {
-                try {
-                    // 可以實作一個狀態查詢端點，這裡暫時使用簡單等待
-                    // 如果你的 n8n 有狀態查詢 webhook，可以在這裡呼叫
-                    
-                    await sleep(pollInterval);
-                    
-                    const elapsed = Math.round((Date.now() - startTime) / 1000);
-                    const statusText = document.getElementById('statusText');
-                    statusText.textContent = `🧠 AI 分析中... (已等待 ${elapsed} 秒)`;
-                    
-                    // 這裡可以加入實際的狀態查詢邏輯
-                    // const statusResponse = await fetch(`${N8N_WEBHOOK_URL}/status?sessionId=${sessionId}`);
-                    // const status = await statusResponse.json();
-                    // if (status.complete) return status.result;
-                    
-                } catch (error) {
-                    debugLog(`輪詢錯誤: ${error.message}`);
-                }
-            }
-            
-            debugLog("輪詢超時");
-            return null;
         }
 
         // ===== 輔助函數 =====
         function blobToBase64(blob) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
-                reader.onload = () => {
-                    const base64 = reader.result.split(',')[1];
-                    resolve(base64);
-                };
+                reader.onload = () => resolve(reader.result.split(',')[1]);
                 reader.onerror = reject;
                 reader.readAsDataURL(blob);
             });
@@ -502,10 +469,11 @@
 
         async function handleSuccess(responseText, submitBtn, closeBtn, resultMsg, statusText) {
             try {
+                debugLog('處理成功回應...', 'info');
                 const res = JSON.parse(responseText);
-                const summaryText = res.summary || "摘要生成完畢";
+                const summaryText = res.summary || "處理完畢";
                 
-                debugLog(`處理成功: ${summaryText.substring(0, 50)}...`);
+                debugLog(`摘要: ${summaryText.substring(0, 100)}...`, 'success');
                 
                 resultMsg.innerHTML = `<strong>✅ 分析完成！</strong><br>摘要已傳送至 LINE，PDF 已寄出。`;
                 resultMsg.className = "message-box success";
@@ -517,30 +485,36 @@
                 if (typeof liff !== 'undefined' && liff.isInClient && liff.isInClient()) {
                     statusText.textContent = "正在傳送 LINE 訊息...";
                     await liff.sendMessages([{ type: 'text', text: `📝 會議摘要：\n${summaryText}` }]);
+                    debugLog('LINE 訊息發送成功', 'success');
                     
-                    statusText.textContent = "3 秒後自動關閉視窗...";
+                    statusText.textContent = "3 秒後自動關閉...";
                     setTimeout(() => { liff.closeWindow(); }, 3000);
                 }
             } catch (e) {
-                debugLog(`解析回應錯誤: ${e.message}`);
+                debugLog(`解析回應錯誤: ${e.message}`, 'error');
                 showError(`解析錯誤: ${e.message}`, submitBtn, closeBtn, resultMsg, null, statusText);
             }
         }
 
         function showError(msg, submitBtn, closeBtn, resultMsg, progressBar, statusText) {
-            debugLog(`顯示錯誤: ${msg}`);
+            debugLog(`顯示錯誤: ${msg}`, 'error');
             resultMsg.innerHTML = `❌ ${msg}`;
             resultMsg.className = "message-box error";
             resultMsg.style.display = "block";
             submitBtn.disabled = false;
             submitBtn.textContent = "重試";
             if (progressBar) {
-                progressBar.classList.remove("processing", "merging");
+                progressBar.classList.remove("processing");
                 progressBar.style.width = "0%";
             }
             statusText.textContent = "發生錯誤";
             closeBtn.style.display = "block";
         }
+
+        // 頁面載入完成
+        debugLog('頁面載入完成', 'success');
+        debugLog(`Webhook URL: ${N8N_WEBHOOK_URL}`, 'info');
+        debugLog(`大檔案門檻: ${LARGE_FILE_THRESHOLD / 1024 / 1024} MB`, 'info');
     </script>
 </body>
 </html>
