@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WiseLife 會議助理 v3.3 (Debug)</title>
+    <title>WiseLife 會議助理 v3.4</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         :root { --primary: #00B900; --processing: #3498db; --warning: #f39c12; --debug: #9b59b6; }
@@ -53,54 +53,21 @@
         .success { background: #e3fdf5; color: #00b894; border: 1px solid #ccfbf1; }
         .error { background: #ffebeb; color: #d63031; border: 1px solid #ffcccc; }
 
-        /* ===== DEBUG 區域 (重點！) ===== */
         .debug-panel {
-            margin-top: 20px;
-            padding: 15px;
-            background: #2c3e50;
-            border-radius: 8px;
-            color: #ecf0f1;
-            font-family: 'Courier New', monospace;
-            font-size: 0.75rem;
-            max-height: 300px;
-            overflow-y: auto;
+            margin-top: 20px; padding: 15px; background: #2c3e50; border-radius: 8px;
+            color: #ecf0f1; font-family: 'Courier New', monospace; font-size: 0.75rem;
+            max-height: 250px; overflow-y: auto;
         }
-        .debug-panel h4 {
-            margin: 0 0 10px 0;
-            color: #9b59b6;
-            font-size: 0.85rem;
-        }
-        .debug-line {
-            margin: 3px 0;
-            padding: 3px 5px;
-            border-left: 3px solid #3498db;
-            background: rgba(52, 152, 219, 0.1);
-        }
-        .debug-line.error {
-            border-left-color: #e74c3c;
-            background: rgba(231, 76, 60, 0.1);
-        }
-        .debug-line.success {
-            border-left-color: #2ecc71;
-            background: rgba(46, 204, 113, 0.1);
-        }
-        .debug-line.warn {
-            border-left-color: #f39c12;
-            background: rgba(243, 156, 18, 0.1);
-        }
-        .debug-response {
-            margin-top: 10px;
-            padding: 10px;
-            background: #1a252f;
-            border-radius: 5px;
-            white-space: pre-wrap;
-            word-break: break-all;
-        }
+        .debug-panel h4 { margin: 0 0 10px 0; color: #9b59b6; font-size: 0.85rem; }
+        .debug-line { margin: 3px 0; padding: 3px 5px; border-left: 3px solid #3498db; background: rgba(52, 152, 219, 0.1); }
+        .debug-line.error { border-left-color: #e74c3c; background: rgba(231, 76, 60, 0.1); }
+        .debug-line.success { border-left-color: #2ecc71; background: rgba(46, 204, 113, 0.1); }
+        .debug-line.warn { border-left-color: #f39c12; background: rgba(243, 156, 18, 0.1); }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="version-tag">🔍 DEBUG v3.3</div>
+        <div class="version-tag">🔍 v3.4 小chunk</div>
 
         <h2>🎙️ WiseLife 會議助理</h2>
         <form id="uploadForm">
@@ -129,8 +96,6 @@
         </div>
 
         <div id="resultMsg" class="message-box"></div>
-        
-        <!-- ===== DEBUG 面板 ===== -->
         <div class="debug-panel" id="debugPanel">
             <h4>🔍 Debug Console</h4>
             <div id="debugLog"></div>
@@ -139,15 +104,16 @@
 
     <script>
         // ==========================================
-        // ⚙️ 設定區
+        // ⚙️ 設定區 - 關鍵修改：更小的 chunk size
         // ==========================================
         const LIFF_ID = "2008799993-Dq2SOrHq"; 
         const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting";
-        const CHUNK_SIZE = 20 * 1024 * 1024;
-        const LARGE_FILE_THRESHOLD = 25 * 1024 * 1024;
+        
+        // 🔥 關鍵修改：把 chunk 從 20MB 改成 5MB
+        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB 每段 (Base64 後約 6.7MB)
+        const LARGE_FILE_THRESHOLD = 24 * 1024 * 1024; // 24MB 以上才分段
         // ==========================================
 
-        // ===== Debug 函數 =====
         function debugLog(message, type = 'info') {
             const timestamp = new Date().toLocaleTimeString();
             const logDiv = document.getElementById('debugLog');
@@ -159,51 +125,27 @@
             console.log(`[${type.toUpperCase()}] ${message}`);
         }
 
-        function debugResponse(title, data) {
-            const logDiv = document.getElementById('debugLog');
-            
-            const titleDiv = document.createElement('div');
-            titleDiv.className = 'debug-line warn';
-            titleDiv.textContent = `📦 ${title}:`;
-            logDiv.appendChild(titleDiv);
-            
-            const responseDiv = document.createElement('div');
-            responseDiv.className = 'debug-response';
-            try {
-                responseDiv.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-            } catch (e) {
-                responseDiv.textContent = String(data);
-            }
-            logDiv.appendChild(responseDiv);
-            logDiv.scrollTop = logDiv.scrollHeight;
-        }
-
-        // ===== 初始化 LIFF =====
         async function initLiff() {
             try {
                 debugLog('初始化 LIFF...', 'info');
                 if(typeof liff !== 'undefined'){
                     await liff.init({ liffId: LIFF_ID });
                     if (!liff.isLoggedIn()) {
-                        debugLog('用戶未登入，導向登入頁', 'warn');
                         liff.login();
                     } else {
                         const user = await liff.getDecodedIDToken();
-                        debugLog(`LIFF 初始化成功，用戶: ${user?.email || '無 email'}`, 'success');
+                        debugLog(`LIFF OK, user: ${user?.email || 'no email'}`, 'success');
                         if(user && user.email) {
                             document.getElementById('emailInput').value = user.email;
                         }
                     }
-                } else {
-                    debugLog('LIFF SDK 未載入', 'error');
                 }
             } catch (err) {
-                debugLog(`LIFF 初始化失敗: ${err.message}`, 'error');
+                debugLog(`LIFF Error: ${err.message}`, 'error');
             }
         }
         initLiff();
 
-        // ===== 檔案選擇 =====
         document.getElementById('fileInput').addEventListener('change', function(e) {
             const file = e.target.files[0];
             const fileInfo = document.getElementById('fileInfo');
@@ -211,24 +153,23 @@
             if (file) {
                 const sizeMB = (file.size / 1024 / 1024).toFixed(2);
                 const isLarge = file.size > LARGE_FILE_THRESHOLD;
+                const chunks = Math.ceil(file.size / CHUNK_SIZE);
                 
                 fileInfo.textContent = `📄 ${file.name} (${sizeMB} MB)`;
                 fileInfo.style.display = 'block';
                 
-                debugLog(`選擇檔案: ${file.name}, 大小: ${sizeMB} MB, MIME: ${file.type}`, 'info');
+                debugLog(`檔案: ${file.name}, ${sizeMB} MB, MIME: ${file.type}`, 'info');
                 
                 if (isLarge) {
                     fileInfo.classList.add('large-file');
-                    fileInfo.textContent += ' - 將使用分段上傳模式';
-                    debugLog(`檔案超過 ${LARGE_FILE_THRESHOLD / 1024 / 1024}MB，將使用 chunked 上傳`, 'warn');
+                    fileInfo.textContent += ` - 將分成 ${chunks} 段上傳`;
+                    debugLog(`大檔案，將分成 ${chunks} 段 (每段 ${CHUNK_SIZE/1024/1024}MB)`, 'warn');
                 } else {
                     fileInfo.classList.remove('large-file');
-                    debugLog('檔案大小正常，將使用 direct 上傳', 'info');
                 }
             }
         });
 
-        // ===== 表單提交 =====
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -242,9 +183,6 @@
             
             const file = fileInput.files[0];
             
-            debugLog(`開始上傳: ${file.name}`, 'info');
-            debugLog(`目標 URL: ${N8N_WEBHOOK_URL}`, 'info');
-            
             if (file.size > LARGE_FILE_THRESHOLD) {
                 await uploadLargeFile(file, emailInput.value);
             } else {
@@ -252,7 +190,7 @@
             }
         });
 
-        // ===== 小檔案上傳 (FormData) =====
+        // ===== 小檔案上傳 =====
         async function uploadSmallFile(file, email) {
             const submitBtn = document.getElementById('submitBtn');
             const closeBtn = document.getElementById('closeBtn');
@@ -265,9 +203,8 @@
             submitBtn.textContent = "⏳ 處理中...";
             resultMsg.style.display = "none";
             progressWrapper.style.display = "block";
-            closeBtn.style.display = "none";
 
-            debugLog('使用 FormData 直接上傳 (small file)', 'info');
+            debugLog('使用 FormData 直接上傳', 'info');
 
             const formData = new FormData();
             formData.append('file', file);
@@ -278,14 +215,8 @@
                 if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
                     const profile = await liff.getProfile();
                     formData.append('userId', profile.userId);
-                    debugLog(`附加 userId: ${profile.userId}`, 'info');
                 }
-            } catch (e) {
-                debugLog(`無法取得 LINE profile: ${e.message}`, 'warn');
-            }
-
-            // 顯示將要發送的資料
-            debugLog(`FormData 內容: file=${file.name}, email=${email}, uploadType=direct`, 'info');
+            } catch (e) {}
 
             const xhr = new XMLHttpRequest();
             xhr.open('POST', N8N_WEBHOOK_URL, true);
@@ -295,44 +226,31 @@
                 if (event.lengthComputable) {
                     const percent = Math.round((event.loaded / event.total) * 100);
                     progressBar.style.width = percent + "%";
-                    progressBar.classList.remove("processing"); 
-                    statusText.textContent = `📤 檔案上傳中... ${percent}%`;
-
+                    statusText.textContent = `📤 上傳中... ${percent}%`;
                     if (percent === 100) {
-                        debugLog('檔案上傳完成，等待伺服器回應...', 'info');
-                        statusText.textContent = "🧠 AI 大腦運轉中...";
+                        statusText.textContent = "🧠 AI 處理中...";
                         progressBar.classList.add("processing");
                     }
                 }
             };
 
-            xhr.onload = async function() {
-                debugLog(`收到回應: HTTP ${xhr.status}`, xhr.status === 200 ? 'success' : 'error');
-                debugResponse('Response Headers', xhr.getAllResponseHeaders());
-                debugResponse('Response Body', xhr.responseText);
-
+            xhr.onload = function() {
+                debugLog(`回應: HTTP ${xhr.status}`, xhr.status === 200 ? 'success' : 'error');
+                debugLog(`Body: ${xhr.responseText.substring(0, 200)}`, 'info');
+                
                 if (xhr.status === 200) {
-                    await handleSuccess(xhr.responseText, submitBtn, closeBtn, resultMsg, statusText);
+                    handleSuccess(xhr.responseText, submitBtn, closeBtn, resultMsg, statusText);
                 } else {
-                    showError(`伺服器錯誤: HTTP ${xhr.status}`, submitBtn, closeBtn, resultMsg, progressBar, statusText);
+                    showError(`HTTP ${xhr.status}: ${xhr.responseText}`, submitBtn, closeBtn, resultMsg, progressBar, statusText);
                 }
             };
 
-            xhr.onerror = function() { 
-                debugLog('XHR 網路錯誤 (onerror)', 'error');
-                showError("網路連線失敗", submitBtn, closeBtn, resultMsg, progressBar, statusText); 
-            };
-            
-            xhr.ontimeout = function() { 
-                debugLog('XHR 逾時 (ontimeout)', 'error');
-                showError("處理逾時", submitBtn, closeBtn, resultMsg, progressBar, statusText); 
-            };
-
-            debugLog('發送 XHR 請求...', 'info');
+            xhr.onerror = () => showError("網路錯誤", submitBtn, closeBtn, resultMsg, progressBar, statusText);
+            xhr.ontimeout = () => showError("逾時", submitBtn, closeBtn, resultMsg, progressBar, statusText);
             xhr.send(formData);
         }
 
-        // ===== 大檔案分段上傳 (JSON) =====
+        // ===== 大檔案分段上傳 =====
         async function uploadLargeFile(file, email) {
             const submitBtn = document.getElementById('submitBtn');
             const closeBtn = document.getElementById('closeBtn');
@@ -345,115 +263,86 @@
             submitBtn.textContent = "⏳ 分段上傳中...";
             resultMsg.style.display = "none";
             progressWrapper.style.display = "block";
-            closeBtn.style.display = "none";
             progressBar.classList.remove("processing");
 
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-            const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const sessionId = `s_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
             
-            debugLog(`使用 JSON 分段上傳 (large file)`, 'info');
-            debugLog(`Session ID: ${sessionId}`, 'info');
-            debugLog(`總分段數: ${totalChunks}`, 'info');
+            debugLog(`分段上傳: ${totalChunks} 段, Session: ${sessionId}`, 'info');
 
             try {
                 let userId = '';
-                if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
-                    const profile = await liff.getProfile();
-                    userId = profile.userId;
-                }
+                try {
+                    if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
+                        const profile = await liff.getProfile();
+                        userId = profile.userId;
+                    }
+                } catch (e) {}
 
-                // ===== 逐段上傳 =====
                 for (let i = 0; i < totalChunks; i++) {
                     const start = i * CHUNK_SIZE;
                     const end = Math.min(start + CHUNK_SIZE, file.size);
                     const chunk = file.slice(start, end);
+                    const chunkSizeMB = ((end - start) / 1024 / 1024).toFixed(2);
 
                     const percent = Math.round(((i + 1) / totalChunks) * 100);
                     progressBar.style.width = percent + "%";
-                    statusText.textContent = `📤 上傳第 ${i + 1}/${totalChunks} 段`;
+                    statusText.textContent = `📤 上傳 ${i + 1}/${totalChunks} (${chunkSizeMB}MB)`;
 
-                    debugLog(`上傳分段 ${i + 1}/${totalChunks} (${start}-${end} bytes)`, 'info');
+                    debugLog(`上傳分段 ${i + 1}/${totalChunks} (${chunkSizeMB}MB)`, 'info');
 
                     const base64Chunk = await blobToBase64(chunk);
+                    const payloadSize = (base64Chunk.length / 1024 / 1024).toFixed(2);
+                    debugLog(`Base64 大小: ${payloadSize}MB`, 'info');
 
-                    const payload = {
-                        email: email,
-                        userId: userId,
-                        fileName: file.name,
-                        sessionId: sessionId,
-                        chunkIndex: i,
-                        totalChunks: totalChunks,
-                        chunkData: base64Chunk.substring(0, 50) + '... (truncated)',  // Debug 用，不顯示完整 base64
-                        mimeType: file.type,
-                        uploadType: 'chunked'
-                    };
-                    
-                    debugLog(`發送 Payload (truncated): ${JSON.stringify({...payload, chunkData: '[BASE64]'})}`, 'info');
-
-                    // 實際發送完整資料
                     const response = await fetch(N8N_WEBHOOK_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            email: email,
-                            userId: userId,
-                            fileName: file.name,
+                            uploadType: 'chunked',
                             sessionId: sessionId,
                             chunkIndex: i,
                             totalChunks: totalChunks,
                             chunkData: base64Chunk,
+                            fileName: file.name,
                             mimeType: file.type,
-                            uploadType: 'chunked'
+                            email: email,
+                            userId: userId
                         })
                     });
 
                     debugLog(`分段 ${i + 1} 回應: HTTP ${response.status}`, response.ok ? 'success' : 'error');
 
-                    // 讀取回應內容
                     const responseText = await response.text();
-                    debugResponse(`分段 ${i + 1} Response`, responseText);
+                    debugLog(`回應內容: ${responseText.substring(0, 100)}`, 'info');
 
                     if (!response.ok) {
-                        throw new Error(`分段 ${i + 1} 上傳失敗: HTTP ${response.status}\n${responseText}`);
+                        throw new Error(`分段 ${i + 1} 失敗: HTTP ${response.status}\n${responseText}`);
                     }
 
-                    // 解析回應
-                    try {
-                        const responseData = JSON.parse(responseText);
-                        debugLog(`分段 ${i + 1} 解析成功: ${JSON.stringify(responseData)}`, 'success');
-                        
-                        // 如果是最後一段且有最終結果
-                        if (i === totalChunks - 1 && responseData.status === 'success') {
-                            await handleSuccess(responseText, submitBtn, closeBtn, resultMsg, statusText);
-                            return;
-                        }
-                    } catch (parseErr) {
-                        debugLog(`分段 ${i + 1} JSON 解析失敗: ${parseErr.message}`, 'warn');
-                    }
-
-                    await sleep(300);
+                    // 短暫延遲
+                    await sleep(200);
                 }
 
-                // 所有分段上傳完成
+                // 完成
                 progressBar.style.width = "100%";
                 progressBar.classList.add("processing");
-                statusText.textContent = "✅ 上傳完成，等待處理...";
+                statusText.textContent = "✅ 上傳完成！";
                 
                 debugLog('所有分段上傳完成', 'success');
                 
                 resultMsg.innerHTML = `<strong>✅ 上傳完成！</strong><br>處理中，結果將發送至 Email。`;
                 resultMsg.className = "message-box success";
                 resultMsg.style.display = "block";
-                submitBtn.textContent = "上傳完成";
+                submitBtn.textContent = "完成";
                 closeBtn.style.display = "block";
 
             } catch (error) {
-                debugLog(`上傳錯誤: ${error.message}`, 'error');
-                showError(`上傳失敗: ${error.message}`, submitBtn, closeBtn, resultMsg, progressBar, statusText);
+                debugLog(`錯誤: ${error.message}`, 'error');
+                showError(error.message, submitBtn, closeBtn, resultMsg, progressBar, statusText);
             }
         }
 
-        // ===== 輔助函數 =====
         function blobToBase64(blob) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -467,54 +356,37 @@
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
-        async function handleSuccess(responseText, submitBtn, closeBtn, resultMsg, statusText) {
+        function handleSuccess(responseText, submitBtn, closeBtn, resultMsg, statusText) {
             try {
-                debugLog('處理成功回應...', 'info');
                 const res = JSON.parse(responseText);
-                const summaryText = res.summary || "處理完畢";
-                
-                debugLog(`摘要: ${summaryText.substring(0, 100)}...`, 'success');
-                
-                resultMsg.innerHTML = `<strong>✅ 分析完成！</strong><br>摘要已傳送至 LINE，PDF 已寄出。`;
+                resultMsg.innerHTML = `<strong>✅ 完成！</strong><br>${res.summary || '處理完畢'}`;
                 resultMsg.className = "message-box success";
                 resultMsg.style.display = "block";
-                
-                submitBtn.textContent = "分析完成";
+                submitBtn.textContent = "完成";
                 closeBtn.style.display = "block";
-
-                if (typeof liff !== 'undefined' && liff.isInClient && liff.isInClient()) {
-                    statusText.textContent = "正在傳送 LINE 訊息...";
-                    await liff.sendMessages([{ type: 'text', text: `📝 會議摘要：\n${summaryText}` }]);
-                    debugLog('LINE 訊息發送成功', 'success');
-                    
-                    statusText.textContent = "3 秒後自動關閉...";
-                    setTimeout(() => { liff.closeWindow(); }, 3000);
-                }
             } catch (e) {
-                debugLog(`解析回應錯誤: ${e.message}`, 'error');
-                showError(`解析錯誤: ${e.message}`, submitBtn, closeBtn, resultMsg, null, statusText);
+                resultMsg.innerHTML = `<strong>✅ 完成！</strong>`;
+                resultMsg.className = "message-box success";
+                resultMsg.style.display = "block";
+                submitBtn.textContent = "完成";
+                closeBtn.style.display = "block";
             }
         }
 
         function showError(msg, submitBtn, closeBtn, resultMsg, progressBar, statusText) {
-            debugLog(`顯示錯誤: ${msg}`, 'error');
+            debugLog(`Error: ${msg}`, 'error');
             resultMsg.innerHTML = `❌ ${msg}`;
             resultMsg.className = "message-box error";
             resultMsg.style.display = "block";
             submitBtn.disabled = false;
             submitBtn.textContent = "重試";
-            if (progressBar) {
-                progressBar.classList.remove("processing");
-                progressBar.style.width = "0%";
-            }
-            statusText.textContent = "發生錯誤";
+            if (progressBar) progressBar.style.width = "0%";
+            statusText.textContent = "錯誤";
             closeBtn.style.display = "block";
         }
 
-        // 頁面載入完成
         debugLog('頁面載入完成', 'success');
-        debugLog(`Webhook URL: ${N8N_WEBHOOK_URL}`, 'info');
-        debugLog(`大檔案門檻: ${LARGE_FILE_THRESHOLD / 1024 / 1024} MB`, 'info');
+        debugLog(`Chunk Size: ${CHUNK_SIZE/1024/1024}MB`, 'info');
     </script>
 </body>
 </html>
