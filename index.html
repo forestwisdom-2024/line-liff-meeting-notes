@@ -116,7 +116,7 @@
         // 📊 Groq API 限制: 25MB
         // 計算: 20MB binary → Base64 編碼後 ≈ 26.7MB (超過限制!)
         // 解決: 實際使用 18MB,確保 Base64 後 < 25MB
-        const SAFE_CHUNK_SIZE = 18 * 1024 * 1024; // 18MB → Base64 約 24MB (安全)
+        const SAFE_CHUNK_SIZE = 10 * 1024 * 1024; // 18MB → Base64 約 24MB (安全)
         // ==========================================
 
         function debugLog(message, type = 'info') {
