@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WiseLife 會議助理 v3.4</title>
+    <title>WiseLife 會議助理 v4.0</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         :root { --primary: #00B900; --processing: #3498db; --warning: #f39c12; --debug: #9b59b6; }
@@ -67,7 +67,7 @@
 </head>
 <body>
     <div class="container">
-        <div class="version-tag">🔍 v3.4 小chunk</div>
+        <div class="version-tag">🚀 v4.0 優化版</div>
 
         <h2>🎙️ WiseLife 會議助理</h2>
         <form id="uploadForm">
@@ -104,14 +104,19 @@
 
     <script>
         // ==========================================
-        // ⚙️ 設定區 - 關鍵修改：更小的 chunk size
+        // ⚙️ 設定區 - v4.0 優化版
         // ==========================================
         const LIFF_ID = "2008799993-Dq2SOrHq"; 
         const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting";
         
-        // 🔥 關鍵修改：把 chunk 從 20MB 改成 5MB
-        const CHUNK_SIZE = 10 * 1024 * 1024; // 5MB 每段 (Base64 後約 6.7MB)
+        // 🔥 關鍵優化：調整為 20MB,確保 Base64 後也在 Groq 25MB 限制內
+        const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB (Base64 約 26.7MB,需控制)
         const LARGE_FILE_THRESHOLD = 24 * 1024 * 1024; // 24MB 以上才分段
+        
+        // 📊 Groq API 限制: 25MB
+        // 計算: 20MB binary → Base64 編碼後 ≈ 26.7MB (超過限制!)
+        // 解決: 實際使用 18MB,確保 Base64 後 < 25MB
+        const SAFE_CHUNK_SIZE = 18 * 1024 * 1024; // 18MB → Base64 約 24MB (安全)
         // ==========================================
 
         function debugLog(message, type = 'info') {
@@ -153,7 +158,7 @@
             if (file) {
                 const sizeMB = (file.size / 1024 / 1024).toFixed(2);
                 const isLarge = file.size > LARGE_FILE_THRESHOLD;
-                const chunks = Math.ceil(file.size / CHUNK_SIZE);
+                const chunks = Math.ceil(file.size / SAFE_CHUNK_SIZE);
                 
                 fileInfo.textContent = `📄 ${file.name} (${sizeMB} MB)`;
                 fileInfo.style.display = 'block';
@@ -163,35 +168,45 @@
                 if (isLarge) {
                     fileInfo.classList.add('large-file');
                     fileInfo.textContent += ` - 將分成 ${chunks} 段上傳`;
-                    debugLog(`大檔案，將分成 ${chunks} 段 (每段 ${CHUNK_SIZE/1024/1024}MB)`, 'warn');
+                    debugLog(`大檔案，將分成 ${chunks} 段 (每段 ${SAFE_CHUNK_SIZE/1024/1024}MB)`, 'warn');
                 } else {
                     fileInfo.classList.remove('large-file');
+                    debugLog('檔案大小適中，將直接上傳', 'success');
                 }
             }
         });
 
-        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            const fileInput = document.getElementById('fileInput');
-            const emailInput = document.getElementById('emailInput');
-            
-            if(fileInput.files.length === 0) { 
-                alert("請選擇檔案"); 
-                return; 
+            const file = document.getElementById('fileInput').files[0];
+            const email = document.getElementById('emailInput').value.trim();
+
+            if (!file) {
+                debugLog('未選擇檔案', 'error');
+                alert('請選擇檔案');
+                return;
             }
-            
-            const file = fileInput.files[0];
-            
+
+            if (!email || !email.includes('@')) {
+                debugLog('Email 格式錯誤', 'error');
+                alert('請輸入有效的 Email');
+                return;
+            }
+
+            debugLog(`開始上傳: ${file.name}`, 'info');
+
             if (file.size > LARGE_FILE_THRESHOLD) {
-                await uploadLargeFile(file, emailInput.value);
+                debugLog('使用分段上傳模式', 'warn');
+                uploadLargeFile(file, email);
             } else {
-                await uploadSmallFile(file, emailInput.value);
+                debugLog('使用直接上傳模式', 'info');
+                uploadDirectly(file, email);
             }
         });
 
-        // ===== 小檔案上傳 =====
-        async function uploadSmallFile(file, email) {
+        // ===== 直接上傳 (< 24MB) =====
+        function uploadDirectly(file, email) {
             const submitBtn = document.getElementById('submitBtn');
             const closeBtn = document.getElementById('closeBtn');
             const progressWrapper = document.getElementById('progressWrapper');
@@ -200,31 +215,36 @@
             const resultMsg = document.getElementById('resultMsg');
 
             submitBtn.disabled = true;
-            submitBtn.textContent = "⏳ 處理中...";
+            submitBtn.textContent = "⏳ 上傳中...";
             resultMsg.style.display = "none";
             progressWrapper.style.display = "block";
-
-            debugLog('使用 FormData 直接上傳', 'info');
+            progressBar.classList.remove("processing");
 
             const formData = new FormData();
             formData.append('file', file);
             formData.append('email', email);
             formData.append('uploadType', 'direct');
 
-            try {
-                if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
-                    const profile = await liff.getProfile();
-                    formData.append('userId', profile.userId);
+            // 取得 userId
+            (async () => {
+                try {
+                    if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
+                        const profile = await liff.getProfile();
+                        formData.append('userId', profile.userId);
+                        debugLog(`User ID: ${profile.userId}`, 'info');
+                    }
+                } catch (e) {
+                    debugLog('無法取得 userId', 'warn');
                 }
-            } catch (e) {}
+            })();
 
             const xhr = new XMLHttpRequest();
             xhr.open('POST', N8N_WEBHOOK_URL, true);
-            xhr.timeout = 300000;
+            xhr.timeout = 180000; // 3 分鐘
 
-            xhr.upload.onprogress = function(event) {
-                if (event.lengthComputable) {
-                    const percent = Math.round((event.loaded / event.total) * 100);
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
                     progressBar.style.width = percent + "%";
                     statusText.textContent = `📤 上傳中... ${percent}%`;
                     if (percent === 100) {
@@ -250,7 +270,7 @@
             xhr.send(formData);
         }
 
-        // ===== 大檔案分段上傳 =====
+        // ===== 大檔案分段上傳 (優化版) =====
         async function uploadLargeFile(file, email) {
             const submitBtn = document.getElementById('submitBtn');
             const closeBtn = document.getElementById('closeBtn');
@@ -265,10 +285,12 @@
             progressWrapper.style.display = "block";
             progressBar.classList.remove("processing");
 
-            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            // 🔥 使用 SAFE_CHUNK_SIZE 確保 Base64 後 < 25MB
+            const totalChunks = Math.ceil(file.size / SAFE_CHUNK_SIZE);
             const sessionId = `s_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
             
             debugLog(`分段上傳: ${totalChunks} 段, Session: ${sessionId}`, 'info');
+            debugLog(`每段大小: ${SAFE_CHUNK_SIZE/1024/1024}MB (Base64 後 ≈ ${(SAFE_CHUNK_SIZE * 4/3 / 1024 / 1024).toFixed(1)}MB)`, 'warn');
 
             try {
                 let userId = '';
@@ -276,12 +298,16 @@
                     if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
                         const profile = await liff.getProfile();
                         userId = profile.userId;
+                        debugLog(`User ID: ${userId}`, 'info');
                     }
-                } catch (e) {}
+                } catch (e) {
+                    debugLog('無法取得 userId', 'warn');
+                }
 
+                // 📊 逐段上傳
                 for (let i = 0; i < totalChunks; i++) {
-                    const start = i * CHUNK_SIZE;
-                    const end = Math.min(start + CHUNK_SIZE, file.size);
+                    const start = i * SAFE_CHUNK_SIZE;
+                    const end = Math.min(start + SAFE_CHUNK_SIZE, file.size);
                     const chunk = file.slice(start, end);
                     const chunkSizeMB = ((end - start) / 1024 / 1024).toFixed(2);
 
@@ -291,23 +317,32 @@
 
                     debugLog(`上傳分段 ${i + 1}/${totalChunks} (${chunkSizeMB}MB)`, 'info');
 
+                    // 轉換為 Base64
                     const base64Chunk = await blobToBase64(chunk);
                     const payloadSize = (base64Chunk.length / 1024 / 1024).toFixed(2);
-                    debugLog(`Base64 大小: ${payloadSize}MB`, 'info');
+                    debugLog(`Base64 大小: ${payloadSize}MB`, payloadSize > 25 ? 'error' : 'success');
 
+                    // 🚨 檢查 Base64 是否超過 Groq 限制
+                    if (payloadSize > 25) {
+                        throw new Error(`分段 ${i + 1} Base64 後超過 25MB (${payloadSize}MB)！請聯絡技術支援。`);
+                    }
+
+                    // 發送請求
                     const response = await fetch(N8N_WEBHOOK_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            uploadType: 'chunked',
-                            sessionId: sessionId,
-                            chunkIndex: i,
-                            totalChunks: totalChunks,
-                            chunkData: base64Chunk,
-                            fileName: file.name,
-                            mimeType: file.type,
-                            email: email,
-                            userId: userId
+                            body: {
+                                uploadType: 'chunked',
+                                sessionId: sessionId,
+                                chunkIndex: i,
+                                totalChunks: totalChunks,
+                                chunkData: base64Chunk,
+                                fileName: file.name,
+                                mimeType: file.type,
+                                email: email,
+                                userId: userId
+                            }
                         })
                     });
 
@@ -320,18 +355,18 @@
                         throw new Error(`分段 ${i + 1} 失敗: HTTP ${response.status}\n${responseText}`);
                     }
 
-                    // 短暫延遲
-                    await sleep(200);
+                    // 短暫延遲避免後端壓力
+                    await sleep(300);
                 }
 
-                // 完成
+                // ✅ 完成
                 progressBar.style.width = "100%";
                 progressBar.classList.add("processing");
-                statusText.textContent = "✅ 上傳完成！";
+                statusText.textContent = "✅ 上傳完成！AI 處理中...";
                 
                 debugLog('所有分段上傳完成', 'success');
                 
-                resultMsg.innerHTML = `<strong>✅ 上傳完成！</strong><br>處理中，結果將發送至 Email。`;
+                resultMsg.innerHTML = `<strong>✅ 上傳完成！</strong><br>AI 正在處理您的檔案，結果將發送至 Email。`;
                 resultMsg.className = "message-box success";
                 resultMsg.style.display = "block";
                 submitBtn.textContent = "完成";
@@ -343,10 +378,15 @@
             }
         }
 
+        // ===== 工具函數 =====
         function blobToBase64(blob) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
-                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onload = () => {
+                    // 移除 "data:audio/xxx;base64," 前綴
+                    const base64 = reader.result.split(',')[1];
+                    resolve(base64);
+                };
                 reader.onerror = reject;
                 reader.readAsDataURL(blob);
             });
@@ -359,17 +399,20 @@
         function handleSuccess(responseText, submitBtn, closeBtn, resultMsg, statusText) {
             try {
                 const res = JSON.parse(responseText);
-                resultMsg.innerHTML = `<strong>✅ 完成！</strong><br>${res.summary || '處理完畢'}`;
+                resultMsg.innerHTML = `<strong>✅ 完成！</strong><br>${res.summary || '處理完畢，結果已發送至 Email'}`;
                 resultMsg.className = "message-box success";
                 resultMsg.style.display = "block";
                 submitBtn.textContent = "完成";
+                statusText.textContent = "✅ 處理完成";
                 closeBtn.style.display = "block";
+                debugLog('任務完成', 'success');
             } catch (e) {
-                resultMsg.innerHTML = `<strong>✅ 完成！</strong>`;
+                resultMsg.innerHTML = `<strong>✅ 完成！</strong><br>結果已發送至 Email`;
                 resultMsg.className = "message-box success";
                 resultMsg.style.display = "block";
                 submitBtn.textContent = "完成";
                 closeBtn.style.display = "block";
+                debugLog('任務完成(解析錯誤)', 'warn');
             }
         }
 
@@ -386,7 +429,8 @@
         }
 
         debugLog('頁面載入完成', 'success');
-        debugLog(`Chunk Size: ${CHUNK_SIZE/1024/1024}MB`, 'info');
+        debugLog(`安全分段大小: ${SAFE_CHUNK_SIZE/1024/1024}MB (Base64 後 ≈ ${(SAFE_CHUNK_SIZE * 4/3 / 1024 / 1024).toFixed(1)}MB)`, 'info');
+        debugLog(`Groq API 限制: 25MB`, 'warn');
     </script>
 </body>
 </html>
