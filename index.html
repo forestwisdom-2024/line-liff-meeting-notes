@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WiseLife 會議助理 v4.1 Fix</title>
+    <title>WiseLife 會議助理 v5.0 Audio Fix</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         :root { --primary: #00B900; --processing: #3498db; --warning: #f39c12; --debug: #9b59b6; }
@@ -67,7 +67,7 @@
 </head>
 <body>
     <div class="container">
-        <div class="version-tag">✅ v4.1 Fix</div>
+        <div class="version-tag">🎧 v5.0 Audio Logic</div>
 
         <h2>🎙️ WiseLife 會議助理</h2>
         <form id="uploadForm">
@@ -75,7 +75,7 @@
                 <label>1. 檔案上傳 <span class="sub-label">(文件/錄音)</span></label>
                 <input type="file" id="fileInput" name="file" 
                        accept="audio/*,text/plain,.m4a,.mp3,.wav,.txt,.md,.pdf,.doc,.docx,.xls,.xlsx,.csv" required>
-                <small style="color:#aaa; display:block; margin-top:5px;">📂 支援 PDF, Word, Excel, 錄音檔</small>
+                <small style="color:#aaa; display:block; margin-top:5px;">📂 支援 M4A, MP3, WAV, PDF, Word, Excel</small>
                 <div id="fileInfo" class="file-info"></div>
             </div>
             
@@ -104,14 +104,19 @@
 
     <script>
         // ==========================================
-        // ⚙️ 設定區 - v4.1 修正版
+        // ⚙️ 設定區 - v5.0 Audio Integration
         // ==========================================
         const LIFF_ID = "2008799993-Dq2SOrHq"; 
         const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting";
         
-        // 🔥 安全分段大小: 18MB (Base64 後 24MB)
-        const SAFE_CHUNK_SIZE = 10 * 1024 * 1024;
-        const LARGE_FILE_THRESHOLD = 24 * 1024 * 1024;
+        // 📊 文件上傳設定
+        const SAFE_CHUNK_SIZE = 10 * 1024 * 1024; // 10MB
+        const LARGE_FILE_THRESHOLD = 24 * 1024 * 1024; // 24MB
+
+        // 🎧 音訊轉碼設定 (每段 180 秒 ≈ 3分鐘)
+        // WAV 44.1kHz 16bit Stereo: 1分鐘 ≈ 10MB, 3分鐘 ≈ 30MB (Groq 極限 25MB, 但通常可接受稍大)
+        // 建議設為 120秒 (2分鐘) 以確保安全不爆 Groq 限制
+        const AUDIO_CHUNK_DURATION = 120; 
         // ==========================================
 
         function debugLog(message, type = 'info') {
@@ -153,17 +158,22 @@
             if (file) {
                 const sizeMB = (file.size / 1024 / 1024).toFixed(2);
                 const isLarge = file.size > LARGE_FILE_THRESHOLD;
-                const chunks = Math.ceil(file.size / SAFE_CHUNK_SIZE);
+                const isAudio = file.type.startsWith('audio/') || file.name.endsWith('.m4a');
                 
                 fileInfo.textContent = `📄 ${file.name} (${sizeMB} MB)`;
                 fileInfo.style.display = 'block';
                 
-                debugLog(`檔案: ${file.name}, ${sizeMB} MB, MIME: ${file.type}`, 'info');
+                debugLog(`檔案偵測: ${file.name}, ${sizeMB} MB, Type: ${file.type}`, 'info');
                 
-                if (isLarge) {
+                if (isAudio && isLarge) {
+                    fileInfo.classList.add('large-file');
+                    fileInfo.textContent += ` - 將進行前端轉碼與分段 (WAV)`;
+                    debugLog('偵測到大型音訊，將使用 AudioContext 轉碼上傳', 'warn');
+                } else if (isLarge) {
+                    const chunks = Math.ceil(file.size / SAFE_CHUNK_SIZE);
                     fileInfo.classList.add('large-file');
                     fileInfo.textContent += ` - 將分成 ${chunks} 段上傳`;
-                    debugLog(`大檔案，將分成 ${chunks} 段 (每段 ${SAFE_CHUNK_SIZE/1024/1024}MB)`, 'warn');
+                    debugLog(`大型文件，將分成 ${chunks} 段`, 'warn');
                 } else {
                     fileInfo.classList.remove('large-file');
                     debugLog('檔案大小適中，將直接上傳', 'success');
@@ -178,252 +188,373 @@
             const email = document.getElementById('emailInput').value.trim();
 
             if (!file) {
-                debugLog('未選擇檔案', 'error');
-                alert('請選擇檔案');
-                return;
+                alert('請選擇檔案'); return;
             }
-
             if (!email || !email.includes('@')) {
-                debugLog('Email 格式錯誤', 'error');
-                alert('請輸入有效的 Email');
-                return;
+                alert('請輸入有效的 Email'); return;
             }
 
-            debugLog(`開始上傳: ${file.name}`, 'info');
+            debugLog(`開始處理任務...`, 'info');
+            
+            const isAudio = file.type.startsWith('audio/') || file.name.endsWith('.m4a');
 
-            if (file.size > LARGE_FILE_THRESHOLD) {
-                debugLog('使用分段上傳模式', 'warn');
+            // 🎯 分流邏輯
+            if (isAudio) {
+                // 音訊處理 (無論大小，為了格式統一建議都走轉碼，或僅針對大檔)
+                // 這裡設定：如果是 m4a 或是大檔，都走轉碼流程以策安全
+                if (file.size > LARGE_FILE_THRESHOLD || file.name.endsWith('.m4a')) {
+                    debugLog('啟動音訊轉碼分段流程 (Process & Upload)', 'warn');
+                    await processAndUploadAudio(file, email);
+                } else {
+                    debugLog('小型音訊，直接上傳', 'info');
+                    uploadDirectly(file, email);
+                }
+            } else if (file.size > LARGE_FILE_THRESHOLD) {
+                debugLog('啟動二進位分段流程 (Binary Chunking)', 'warn');
                 uploadLargeFile(file, email);
             } else {
-                debugLog('使用直接上傳模式', 'info');
+                debugLog('一般檔案直接上傳', 'info');
                 uploadDirectly(file, email);
             }
         });
 
-        // ===== 直接上傳 (< 24MB) =====
+        // ==========================================
+        // 1. 標準直接上傳 (適用小檔、PDF等)
+        // ==========================================
         function uploadDirectly(file, email) {
-            const submitBtn = document.getElementById('submitBtn');
-            const closeBtn = document.getElementById('closeBtn');
-            const progressWrapper = document.getElementById('progressWrapper');
-            const progressBar = document.getElementById('progressBar');
-            const statusText = document.getElementById('statusText');
-            const resultMsg = document.getElementById('resultMsg');
-
-            submitBtn.disabled = true;
-            submitBtn.textContent = "⏳ 上傳中...";
-            resultMsg.style.display = "none";
-            progressWrapper.style.display = "block";
-            progressBar.classList.remove("processing");
-
+            setupUI("⏳ 上傳中...");
             const formData = new FormData();
             formData.append('file', file);
             formData.append('email', email);
             formData.append('uploadType', 'direct');
-
-            // 取得 userId
-            (async () => {
-                try {
-                    if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
-                        const profile = await liff.getProfile();
-                        formData.append('userId', profile.userId);
-                        debugLog(`User ID: ${profile.userId}`, 'info');
-                    }
-                } catch (e) {
-                    debugLog('無法取得 userId', 'warn');
-                }
-            })();
-
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', N8N_WEBHOOK_URL, true);
-            xhr.timeout = 180000;
-
-            xhr.upload.onprogress = function(e) {
-                if (e.lengthComputable) {
-                    const percent = Math.round((e.loaded / e.total) * 100);
-                    progressBar.style.width = percent + "%";
-                    statusText.textContent = `📤 上傳中... ${percent}%`;
-                    if (percent === 100) {
-                        statusText.textContent = "🧠 AI 處理中...";
-                        progressBar.classList.add("processing");
-                    }
-                }
-            };
-
-            xhr.onload = function() {
-                debugLog(`回應: HTTP ${xhr.status}`, xhr.status === 200 ? 'success' : 'error');
-                debugLog(`Body: ${xhr.responseText.substring(0, 200)}`, 'info');
+            
+            appendUserId(formData).then(() => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', N8N_WEBHOOK_URL, true);
                 
-                if (xhr.status === 200) {
-                    handleSuccess(xhr.responseText, submitBtn, closeBtn, resultMsg, statusText);
-                } else {
-                    showError(`HTTP ${xhr.status}: ${xhr.responseText}`, submitBtn, closeBtn, resultMsg, progressBar, statusText);
-                }
-            };
+                xhr.upload.onprogress = function(e) {
+                    if (e.lengthComputable) updateProgress(e.loaded, e.total, "📤 上傳中...");
+                };
 
-            xhr.onerror = () => showError("網路錯誤", submitBtn, closeBtn, resultMsg, progressBar, statusText);
-            xhr.ontimeout = () => showError("逾時", submitBtn, closeBtn, resultMsg, progressBar, statusText);
-            xhr.send(formData);
+                xhr.onload = () => handleXhrLoad(xhr);
+                xhr.onerror = () => showError("網路錯誤");
+                xhr.send(formData);
+            });
         }
 
-        // ===== 大檔案分段上傳 (修正版) =====
-        async function uploadLargeFile(file, email) {
+        // ==========================================
+        // 2. 音訊前端轉碼分段 (適用大型 M4A/MP3)
+        // ==========================================
+        async function processAndUploadAudio(file, email) {
+            setupUI("🎧 正在讀取並解碼音訊...");
             const submitBtn = document.getElementById('submitBtn');
-            const closeBtn = document.getElementById('closeBtn');
-            const progressWrapper = document.getElementById('progressWrapper');
+            const resultMsg = document.getElementById('resultMsg');
+            const statusText = document.getElementById('statusText');
+            const progressBar = document.getElementById('progressBar');
+
+            try {
+                // 1. 解碼 (Decode)
+                debugLog(`讀取檔案 ArrayBuffer...`, 'info');
+                const arrayBuffer = await file.arrayBuffer();
+                
+                debugLog(`開始解碼 AudioContext (這可能需要幾秒鐘)...`, 'warn');
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+                
+                debugLog(`解碼成功: ${audioBuffer.duration.toFixed(1)}s, ${audioBuffer.numberOfChannels}ch, ${audioBuffer.sampleRate}Hz`, 'success');
+
+                // 2. 計算分段
+                const totalDuration = audioBuffer.duration;
+                const totalChunks = Math.ceil(totalDuration / AUDIO_CHUNK_DURATION);
+                const sessionId = `s_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+                
+                debugLog(`準備分段: 共 ${totalChunks} 段, Session: ${sessionId}`, 'info');
+
+                let userId = await getUserId();
+
+                // 3. 執行分段上傳
+                for (let i = 0; i < totalChunks; i++) {
+                    const start = i * AUDIO_CHUNK_DURATION;
+                    const end = Math.min(start + AUDIO_CHUNK_DURATION, totalDuration);
+                    
+                    statusText.textContent = `⚙️ 轉碼分段 ${i + 1}/${totalChunks} (WAV)...`;
+                    
+                    // 切割並封裝成 WAV Blob
+                    const wavBlob = await sliceAndEncodeWav(audioBuffer, start, end);
+                    
+                    // 轉 Base64
+                    const base64Data = await blobToBase64(wavBlob);
+                    
+                    // 檢查單段大小
+                    const sizeMB = (base64Data.length / 1024 / 1024).toFixed(2);
+                    debugLog(`Chunk ${i+1}/${totalChunks}: ${sizeMB}MB (WAV)`, 'info');
+
+                    // 上傳
+                    statusText.textContent = `📤 上傳分段 ${i + 1}/${totalChunks}...`;
+                    const percent = Math.round(((i + 1) / totalChunks) * 100);
+                    progressBar.style.width = percent + "%";
+
+                    await uploadChunkJson(
+                        {
+                            uploadType: 'chunked_audio', // 🔥 標記為音訊分段
+                            sessionId: sessionId,
+                            chunkIndex: i,
+                            totalChunks: totalChunks,
+                            chunkData: base64Data,
+                            fileName: file.name + ".wav", // 強制改名為 .wav
+                            mimeType: 'audio/wav',
+                            email: email,
+                            userId: userId
+                        }, 
+                        i + 1
+                    );
+                }
+
+                handleFinalSuccess();
+
+            } catch (err) {
+                console.error(err);
+                showError(`音訊處理失敗: ${err.message}`);
+            }
+        }
+
+        // ==========================================
+        // 3. 文件二進位分段 (適用大型 PDF/Doc)
+        // ==========================================
+        async function uploadLargeFile(file, email) {
+            setupUI("⏳ 文件分段處理中...");
             const progressBar = document.getElementById('progressBar');
             const statusText = document.getElementById('statusText');
-            const resultMsg = document.getElementById('resultMsg');
-
-            submitBtn.disabled = true;
-            submitBtn.textContent = "⏳ 分段上傳中...";
-            resultMsg.style.display = "none";
-            progressWrapper.style.display = "block";
-            progressBar.classList.remove("processing");
 
             const totalChunks = Math.ceil(file.size / SAFE_CHUNK_SIZE);
             const sessionId = `s_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
             
-            debugLog(`分段上傳: ${totalChunks} 段, Session: ${sessionId}`, 'info');
-            debugLog(`每段大小: ${SAFE_CHUNK_SIZE/1024/1024}MB (Base64 後 ≈ ${(SAFE_CHUNK_SIZE * 4/3 / 1024 / 1024).toFixed(1)}MB)`, 'warn');
+            debugLog(`文件分段: ${totalChunks} 段`, 'info');
 
             try {
-                let userId = '';
-                try {
-                    if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
-                        const profile = await liff.getProfile();
-                        userId = profile.userId;
-                        debugLog(`User ID: ${userId}`, 'info');
-                    }
-                } catch (e) {
-                    debugLog('無法取得 userId', 'warn');
-                }
+                let userId = await getUserId();
 
-                // 📊 逐段上傳
                 for (let i = 0; i < totalChunks; i++) {
                     const start = i * SAFE_CHUNK_SIZE;
                     const end = Math.min(start + SAFE_CHUNK_SIZE, file.size);
                     const chunk = file.slice(start, end);
-                    const chunkSizeMB = ((end - start) / 1024 / 1024).toFixed(2);
 
+                    statusText.textContent = `📤 上傳分段 ${i + 1}/${totalChunks}...`;
                     const percent = Math.round(((i + 1) / totalChunks) * 100);
                     progressBar.style.width = percent + "%";
-                    statusText.textContent = `📤 上傳 ${i + 1}/${totalChunks} (${chunkSizeMB}MB)`;
 
-                    debugLog(`上傳分段 ${i + 1}/${totalChunks} (${chunkSizeMB}MB)`, 'info');
-
-                    // 轉換為 Base64
                     const base64Chunk = await blobToBase64(chunk);
-                    const payloadSize = (base64Chunk.length / 1024 / 1024).toFixed(2);
-                    debugLog(`Base64 大小: ${payloadSize}MB`, payloadSize > 25 ? 'error' : 'success');
 
-                    // 🚨 檢查 Base64 是否超過 Groq 限制
-                    if (payloadSize > 25) {
-                        throw new Error(`分段 ${i + 1} Base64 後超過 25MB (${payloadSize}MB)！`);
-                    }
-
-                    // 🔥 關鍵修正: 直接放在 body 下,而不是 body.body
-                    const response = await fetch(N8N_WEBHOOK_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            body: {
-                                uploadType: 'chunked',
-                                sessionId: sessionId,
-                                chunkIndex: i,
-                                totalChunks: totalChunks,
-                                chunkData: base64Chunk,
-                                fileName: file.name,
-                                mimeType: file.type,
-                                email: email,
-                                userId: userId
-                            }
-                        })
-                    });
-
-                    debugLog(`分段 ${i + 1} 回應: HTTP ${response.status}`, response.ok ? 'success' : 'error');
-
-                    const responseText = await response.text();
-                    debugLog(`回應內容: ${responseText.substring(0, 100)}`, 'info');
-
-                    if (!response.ok) {
-                        throw new Error(`分段 ${i + 1} 失敗: HTTP ${response.status}\n${responseText}`);
-                    }
-
-                    // 短暫延遲避免後端壓力
-                    await sleep(300);
+                    await uploadChunkJson(
+                        {
+                            uploadType: 'chunked', // 一般分段
+                            sessionId: sessionId,
+                            chunkIndex: i,
+                            totalChunks: totalChunks,
+                            chunkData: base64Chunk,
+                            fileName: file.name,
+                            mimeType: file.type,
+                            email: email,
+                            userId: userId
+                        },
+                        i + 1
+                    );
                 }
-
-                // ✅ 完成
-                progressBar.style.width = "100%";
-                progressBar.classList.add("processing");
-                statusText.textContent = "✅ 上傳完成！AI 處理中...";
-                
-                debugLog('所有分段上傳完成', 'success');
-                
-                resultMsg.innerHTML = `<strong>✅ 上傳完成！</strong><br>AI 正在處理您的檔案，結果將發送至 Email。`;
-                resultMsg.className = "message-box success";
-                resultMsg.style.display = "block";
-                submitBtn.textContent = "完成";
-                closeBtn.style.display = "block";
+                handleFinalSuccess();
 
             } catch (error) {
-                debugLog(`錯誤: ${error.message}`, 'error');
-                showError(error.message, submitBtn, closeBtn, resultMsg, progressBar, statusText);
+                showError(error.message);
             }
         }
 
-        // ===== 工具函數 =====
-        function blobToBase64(blob) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => {
-                    const base64 = reader.result.split(',')[1];
-                    resolve(base64);
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
+        // ==========================================
+        // 🛠️ 核心工具函數 (WAV Encoder & Helpers)
+        // ==========================================
+        
+        // 通用 JSON 上傳 Fetcher (相容 n8n body 結構)
+        async function uploadChunkJson(payload, indexStr) {
+            const response = await fetch(N8N_WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // 巢狀結構以符合您的 N8N 讀取邏輯 (body.body)
+                body: JSON.stringify({ body: payload }) 
+            });
+
+            if (!response.ok) {
+                const txt = await response.text();
+                throw new Error(`分段 ${indexStr} 失敗: ${response.status} ${txt}`);
+            }
+            debugLog(`分段 ${indexStr} 上傳成功`, 'success');
+            await sleep(200); // 緩衝
+        }
+
+        function sliceAndEncodeWav(audioBuffer, startTime, endTime) {
+            return new Promise((resolve) => {
+                const sampleRate = audioBuffer.sampleRate;
+                const startOffset = Math.floor(startTime * sampleRate);
+                const endOffset = Math.floor(endTime * sampleRate);
+                const frameCount = endOffset - startOffset;
+                const channels = audioBuffer.numberOfChannels;
+
+                // 建立交錯的 Buffer
+                const interleaved = new Float32Array(frameCount * channels);
+                
+                for (let channel = 0; channel < channels; channel++) {
+                    const channelData = audioBuffer.getChannelData(channel).subarray(startOffset, endOffset);
+                    for (let i = 0; i < frameCount; i++) {
+                        interleaved[i * channels + channel] = channelData[i];
+                    }
+                }
+
+                // WAV Header (44 bytes) + PCM Data
+                const buffer = new ArrayBuffer(44 + interleaved.length * 2);
+                const view = new DataView(buffer);
+
+                writeString(view, 0, 'RIFF');
+                view.setUint32(4, 36 + interleaved.length * 2, true);
+                writeString(view, 8, 'WAVE');
+                writeString(view, 12, 'fmt ');
+                view.setUint32(16, 16, true);
+                view.setUint16(20, 1, true); // PCM
+                view.setUint16(22, channels, true);
+                view.setUint32(24, sampleRate, true);
+                view.setUint32(28, sampleRate * channels * 2, true);
+                view.setUint16(32, channels * 2, true);
+                view.setUint16(34, 16, true); // 16-bit
+                writeString(view, 36, 'data');
+                view.setUint32(40, interleaved.length * 2, true);
+
+                // PCM 寫入
+                let offset = 44;
+                for (let i = 0; i < interleaved.length; i++) {
+                    let s = Math.max(-1, Math.min(1, interleaved[i]));
+                    s = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    view.setInt16(offset, s, true);
+                    offset += 2;
+                }
+
+                resolve(new Blob([view], { type: 'audio/wav' }));
             });
         }
 
-        function sleep(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        function handleSuccess(responseText, submitBtn, closeBtn, resultMsg, statusText) {
-            try {
-                const res = JSON.parse(responseText);
-                resultMsg.innerHTML = `<strong>✅ 完成！</strong><br>${res.summary || '處理完畢，結果已發送至 Email'}`;
-                resultMsg.className = "message-box success";
-                resultMsg.style.display = "block";
-                submitBtn.textContent = "完成";
-                statusText.textContent = "✅ 處理完成";
-                closeBtn.style.display = "block";
-                debugLog('任務完成', 'success');
-            } catch (e) {
-                resultMsg.innerHTML = `<strong>✅ 完成！</strong><br>結果已發送至 Email`;
-                resultMsg.className = "message-box success";
-                resultMsg.style.display = "block";
-                submitBtn.textContent = "完成";
-                closeBtn.style.display = "block";
-                debugLog('任務完成(解析錯誤)', 'warn');
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
             }
         }
 
-        function showError(msg, submitBtn, closeBtn, resultMsg, progressBar, statusText) {
+        // UI Helpers
+        function setupUI(status) {
+            const submitBtn = document.getElementById('submitBtn');
+            const resultMsg = document.getElementById('resultMsg');
+            const progressWrapper = document.getElementById('progressWrapper');
+            const progressBar = document.getElementById('progressBar');
+            const statusText = document.getElementById('statusText');
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = "⏳ 處理中...";
+            resultMsg.style.display = "none";
+            progressWrapper.style.display = "block";
+            progressBar.style.width = "0%";
+            progressBar.classList.remove("processing");
+            statusText.textContent = status;
+        }
+
+        function updateProgress(loaded, total, text) {
+            const percent = Math.round((loaded / total) * 100);
+            const progressBar = document.getElementById('progressBar');
+            const statusText = document.getElementById('statusText');
+            progressBar.style.width = percent + "%";
+            statusText.textContent = `${text} ${percent}%`;
+            if (percent === 100) {
+                statusText.textContent = "🧠 AI 處理中...";
+                progressBar.classList.add("processing");
+            }
+        }
+
+        function handleXhrLoad(xhr) {
+            const submitBtn = document.getElementById('submitBtn');
+            const closeBtn = document.getElementById('closeBtn');
+            const resultMsg = document.getElementById('resultMsg');
+            const statusText = document.getElementById('statusText');
+
+            debugLog(`回應: ${xhr.status}`, xhr.status === 200 ? 'success' : 'error');
+            
+            if (xhr.status === 200) {
+                handleFinalSuccess(xhr.responseText);
+            } else {
+                showError(`HTTP ${xhr.status}: ${xhr.responseText}`);
+            }
+        }
+
+        function handleFinalSuccess(responseText = "") {
+            const submitBtn = document.getElementById('submitBtn');
+            const closeBtn = document.getElementById('closeBtn');
+            const resultMsg = document.getElementById('resultMsg');
+            const statusText = document.getElementById('statusText');
+            const progressBar = document.getElementById('progressBar');
+
+            progressBar.style.width = "100%";
+            progressBar.classList.add("processing");
+            statusText.textContent = "✅ 完成";
+            
+            let msg = '處理完畢，結果已發送至 Email';
+            try {
+                if(responseText) {
+                    const res = JSON.parse(responseText);
+                    if(res.summary) msg = res.summary;
+                }
+            } catch(e) {}
+
+            resultMsg.innerHTML = `<strong>✅ 任務完成！</strong><br>${msg}`;
+            resultMsg.className = "message-box success";
+            resultMsg.style.display = "block";
+            submitBtn.textContent = "完成";
+            closeBtn.style.display = "block";
+            debugLog('All Done.', 'success');
+        }
+
+        function showError(msg) {
+            const submitBtn = document.getElementById('submitBtn');
+            const closeBtn = document.getElementById('closeBtn');
+            const resultMsg = document.getElementById('resultMsg');
+            
             debugLog(`Error: ${msg}`, 'error');
             resultMsg.innerHTML = `❌ ${msg}`;
             resultMsg.className = "message-box error";
             resultMsg.style.display = "block";
             submitBtn.disabled = false;
             submitBtn.textContent = "重試";
-            if (progressBar) progressBar.style.width = "0%";
-            statusText.textContent = "錯誤";
             closeBtn.style.display = "block";
         }
 
-        debugLog('頁面載入完成 - v4.1 修正版', 'success');
-        debugLog(`安全分段: 18MB (Base64: 24MB) | Groq限制: 25MB`, 'info');
-        debugLog(`🔧 已修正 JSON 結構問題`, 'success');
+        async function getUserId() {
+            try {
+                if (typeof liff !== 'undefined' && liff.isLoggedIn()) {
+                    const profile = await liff.getProfile();
+                    return profile.userId;
+                }
+            } catch (e) {}
+            return '';
+        }
+
+        async function appendUserId(formData) {
+            const uid = await getUserId();
+            if(uid) formData.append('userId', uid);
+        }
+
+        function blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        }
+        
+        function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+        debugLog('System Ready: v5.0 Audio Integration', 'success');
     </script>
 </body>
 </html>
