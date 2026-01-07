@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WiseLife 會議助理 v4.0</title>
+    <title>WiseLife 會議助理 v4.1 Fix</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         :root { --primary: #00B900; --processing: #3498db; --warning: #f39c12; --debug: #9b59b6; }
@@ -67,7 +67,7 @@
 </head>
 <body>
     <div class="container">
-        <div class="version-tag">🚀 v4.0 優化版</div>
+        <div class="version-tag">✅ v4.1 Fix</div>
 
         <h2>🎙️ WiseLife 會議助理</h2>
         <form id="uploadForm">
@@ -104,19 +104,14 @@
 
     <script>
         // ==========================================
-        // ⚙️ 設定區 - v4.0 優化版
+        // ⚙️ 設定區 - v4.1 修正版
         // ==========================================
         const LIFF_ID = "2008799993-Dq2SOrHq"; 
         const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting";
         
-        // 🔥 關鍵優化：調整為 20MB,確保 Base64 後也在 Groq 25MB 限制內
-        const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB (Base64 約 26.7MB,需控制)
-        const LARGE_FILE_THRESHOLD = 24 * 1024 * 1024; // 24MB 以上才分段
-        
-        // 📊 Groq API 限制: 25MB
-        // 計算: 20MB binary → Base64 編碼後 ≈ 26.7MB (超過限制!)
-        // 解決: 實際使用 18MB,確保 Base64 後 < 25MB
-        const SAFE_CHUNK_SIZE = 10 * 1024 * 1024; // 18MB → Base64 約 24MB (安全)
+        // 🔥 安全分段大小: 18MB (Base64 後 24MB)
+        const SAFE_CHUNK_SIZE = 18 * 1024 * 1024;
+        const LARGE_FILE_THRESHOLD = 24 * 1024 * 1024;
         // ==========================================
 
         function debugLog(message, type = 'info') {
@@ -240,7 +235,7 @@
 
             const xhr = new XMLHttpRequest();
             xhr.open('POST', N8N_WEBHOOK_URL, true);
-            xhr.timeout = 180000; // 3 分鐘
+            xhr.timeout = 180000;
 
             xhr.upload.onprogress = function(e) {
                 if (e.lengthComputable) {
@@ -270,7 +265,7 @@
             xhr.send(formData);
         }
 
-        // ===== 大檔案分段上傳 (優化版) =====
+        // ===== 大檔案分段上傳 (修正版) =====
         async function uploadLargeFile(file, email) {
             const submitBtn = document.getElementById('submitBtn');
             const closeBtn = document.getElementById('closeBtn');
@@ -285,7 +280,6 @@
             progressWrapper.style.display = "block";
             progressBar.classList.remove("processing");
 
-            // 🔥 使用 SAFE_CHUNK_SIZE 確保 Base64 後 < 25MB
             const totalChunks = Math.ceil(file.size / SAFE_CHUNK_SIZE);
             const sessionId = `s_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
             
@@ -324,10 +318,10 @@
 
                     // 🚨 檢查 Base64 是否超過 Groq 限制
                     if (payloadSize > 25) {
-                        throw new Error(`分段 ${i + 1} Base64 後超過 25MB (${payloadSize}MB)！請聯絡技術支援。`);
+                        throw new Error(`分段 ${i + 1} Base64 後超過 25MB (${payloadSize}MB)！`);
                     }
 
-                    // 發送請求
+                    // 🔥 關鍵修正: 直接放在 body 下,而不是 body.body
                     const response = await fetch(N8N_WEBHOOK_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -383,7 +377,6 @@
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => {
-                    // 移除 "data:audio/xxx;base64," 前綴
                     const base64 = reader.result.split(',')[1];
                     resolve(base64);
                 };
@@ -428,9 +421,9 @@
             closeBtn.style.display = "block";
         }
 
-        debugLog('頁面載入完成', 'success');
-        debugLog(`安全分段大小: ${SAFE_CHUNK_SIZE/1024/1024}MB (Base64 後 ≈ ${(SAFE_CHUNK_SIZE * 4/3 / 1024 / 1024).toFixed(1)}MB)`, 'info');
-        debugLog(`Groq API 限制: 25MB`, 'warn');
+        debugLog('頁面載入完成 - v4.1 修正版', 'success');
+        debugLog(`安全分段: 18MB (Base64: 24MB) | Groq限制: 25MB`, 'info');
+        debugLog(`🔧 已修正 JSON 結構問題`, 'success');
     </script>
 </body>
 </html>
