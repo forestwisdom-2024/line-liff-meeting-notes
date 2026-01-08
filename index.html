@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WiseLife 會議助理 v5.1 Smart Audio</title>
+    <title>WiseLife 會議助理 v5.2 JWT</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         :root { --primary: #00B900; --processing: #3498db; --warning: #f39c12; --debug: #9b59b6; }
@@ -67,7 +67,7 @@
 </head>
 <body>
     <div class="container">
-        <div class="version-tag">🎧 v5.1 Smart Audio</div>
+        <div class="version-tag">🔐 v5.2 JWT</div>
 
         <h2>🎙️ WiseLife 會議助理</h2>
         <form id="uploadForm">
@@ -104,21 +104,356 @@
 
     <script>
         // ==========================================
-        // ⚙️ 設定區 - v5.0 Audio Integration
+        // ⚙️ 設定區 - v5.2 JWT Token Integration
         // ==========================================
         const LIFF_ID = "2008799993-Dq2SOrHq"; 
         const N8N_WEBHOOK_URL = "https://wiselifeai.zeabur.app/webhook/process-meeting";
+        const N8N_TOKEN_URL = "https://wiselifeai.zeabur.app/webhook/get-temp-token";
         
-        // 📊 文件上傳設定
-        const SAFE_CHUNK_SIZE = 10 * 1024 * 1024; // 10MB
+        const GROQ_LIMIT = 25 * 1024 * 1024; // 25MB (Groq Whisper 限制)
         const LARGE_FILE_THRESHOLD = 24 * 1024 * 1024; // 24MB
-
-        // 🎧 音訊轉碼設定 (每段 180 秒 ≈ 3分鐘)
-        // WAV 44.1kHz 16bit Stereo: 1分鐘 ≈ 10MB, 3分鐘 ≈ 30MB (Groq 極限 25MB, 但通常可接受稍大)
-        // 建議設為 120秒 (2分鐘) 以確保安全不爆 Groq 限制
-        const AUDIO_CHUNK_DURATION = 120; 
+        const AUDIO_CHUNK_DURATION = 180; // 3 分鐘
+        
         // ==========================================
+        // 🔑 JWT Token 管理
+        // ==========================================
+        let TEMP_GROQ_TOKEN = null;
+        let TOKEN_EXPIRES_AT = null;
+        let TOKEN_USAGE_COUNT = 0;
 
+        async function getTemporaryToken() {
+            try {
+                debugLog('🔑 請求臨時 Groq Token...', 'info');
+                
+                const userId = await getUserId();
+                const response = await fetch(N8N_TOKEN_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: userId,
+                        deviceInfo: navigator.userAgent
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('無法取得臨時 Token');
+                }
+                
+                const data = await response.json();
+                
+                TEMP_GROQ_TOKEN = data.token;
+                TOKEN_EXPIRES_AT = new Date(data.expiresAt);
+                TOKEN_USAGE_COUNT = 0;
+                
+                debugLog(`✅ Token 已取得，有效至 ${TOKEN_EXPIRES_AT.toLocaleTimeString()}`, 'success');
+                
+            } catch (error) {
+                debugLog(`❌ Token 取得失敗: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        async function ensureValidToken() {
+            const now = new Date();
+            
+            // 檢查是否需要重新取得
+            if (!TEMP_GROQ_TOKEN || now >= TOKEN_EXPIRES_AT || TOKEN_USAGE_COUNT >= 18) {
+                if (TOKEN_USAGE_COUNT >= 18) {
+                    debugLog('⚠️ Token 使用次數接近上限，重新取得...', 'warn');
+                }
+                await getTemporaryToken();
+            }
+        }
+
+        async function transcribeWithGroq(audioFile) {
+            await ensureValidToken();
+            
+            TOKEN_USAGE_COUNT++;
+            debugLog(`📤 呼叫 Groq API (使用次數: ${TOKEN_USAGE_COUNT}/20)`, 'info');
+            
+            const formData = new FormData();
+            formData.append('file', audioFile, 'audio.wav');
+            formData.append('model', 'whisper-large-v3');
+            formData.append('language', 'zh');
+            formData.append('response_format', 'json');
+            
+            const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${TEMP_GROQ_TOKEN}`
+                },
+                body: formData
+            });
+            
+            if (!response.ok) {
+                // Token 失效，重試一次
+                if (response.status === 401) {
+                    debugLog('⚠️ Token 無效，重新取得後重試...', 'warn');
+                    await getTemporaryToken();
+                    return transcribeWithGroq(audioFile);
+                }
+                
+                const error = await response.json();
+                throw new Error(error.error?.message || 'Groq 轉錄失敗');
+            }
+            
+            const result = await response.json();
+            return result.text;
+        }
+
+        // ==========================================
+        // 🎵 音訊處理函數 - JWT Token 模式
+        // ==========================================
+        
+        async function processSmallAudioWithJWT(file, email) {
+            setupUI("🎤 正在轉錄（JWT 模式）...");
+            
+            try {
+                const transcript = await transcribeWithGroq(file);
+                
+                debugLog(`✅ 轉錄完成，共 ${transcript.length} 字`, 'success');
+                
+                await sendTranscriptToN8N({
+                    uploadType: 'transcript_only',
+                    transcript: transcript,
+                    fileName: file.name,
+                    email: email || '',
+                    userId: await getUserId(),
+                    fileSize: file.size,
+                    processingMode: 'jwt_direct'
+                });
+                
+                handleFinalSuccess();
+                
+            } catch (error) {
+                showError(`轉錄失敗: ${error.message}`);
+            }
+        }
+
+        async function processLargeAudioWithJWT(file, email) {
+            setupUI("🎧 正在處理大型音訊（JWT 模式）...");
+            
+            try {
+                // 步驟 1: 解碼音訊
+                debugLog('📀 解碼音訊檔案...', 'info');
+                const arrayBuffer = await file.arrayBuffer();
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+                
+                const totalDuration = audioBuffer.duration;
+                const totalChunks = Math.ceil(totalDuration / AUDIO_CHUNK_DURATION);
+                
+                debugLog(`🎵 音訊長度 ${totalDuration.toFixed(1)}秒，分成 ${totalChunks} 段`, 'info');
+                
+                // 步驟 2: 逐段轉錄
+                const transcripts = [];
+                
+                for (let i = 0; i < totalChunks; i++) {
+                    const start = i * AUDIO_CHUNK_DURATION;
+                    const end = Math.min(start + AUDIO_CHUNK_DURATION, totalDuration);
+                    
+                    updateProgress(i + 1, totalChunks, `轉錄第 ${i + 1}/${totalChunks} 段`);
+                    
+                    // 切割音訊
+                    debugLog(`✂️ 切割第 ${i + 1} 段 (${start.toFixed(1)}s - ${end.toFixed(1)}s)`, 'info');
+                    const chunkBlob = await sliceAndEncodeWav(audioBuffer, start, end);
+                    
+                    // 使用 JWT Token 轉錄
+                    const transcript = await transcribeWithGroq(chunkBlob);
+                    
+                    transcripts.push(transcript);
+                    debugLog(`✅ 第 ${i + 1} 段完成: ${transcript.substring(0, 30)}...`, 'success');
+                }
+                
+                // 步驟 3: 合併文字
+                const fullTranscript = transcripts.join('\n\n');
+                
+                debugLog(`🎉 所有段落轉錄完成，總共 ${fullTranscript.length} 字`, 'success');
+                
+                // 步驟 4: 發送文字至 N8N
+                await sendTranscriptToN8N({
+                    uploadType: 'transcript_only',
+                    transcript: fullTranscript,
+                    fileName: file.name,
+                    email: email || '',
+                    userId: await getUserId(),
+                    fileSize: file.size,
+                    processingMode: 'jwt_chunked',
+                    totalChunks: totalChunks
+                });
+                
+                handleFinalSuccess();
+                
+            } catch (error) {
+                showError(`處理失敗: ${error.message}`);
+            }
+        }
+
+        async function sendTranscriptToN8N(payload) {
+            const response = await fetch(N8N_WEBHOOK_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    body: payload
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`N8N 回應錯誤: ${response.status}`);
+            }
+            
+            return await response.json();
+        }
+
+        // ==========================================
+        // 📄 非音訊檔案處理（保留原有邏輯）
+        // ==========================================
+        
+        function uploadDirectly(file, email) {
+            setupUI("⏳ 上傳中...");
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('email', email || '');
+            formData.append('uploadType', 'direct');
+            
+            appendUserId(formData).then(() => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', N8N_WEBHOOK_URL, true);
+                
+                xhr.upload.onprogress = function(e) {
+                    if (e.lengthComputable) updateProgress(e.loaded, e.total, "📤 上傳中...");
+                };
+
+                xhr.onload = () => handleXhrLoad(xhr);
+                xhr.onerror = () => showError("網路錯誤");
+                xhr.send(formData);
+            });
+        }
+
+        async function uploadLargeFile(file, email) {
+            setupUI("⏳ 文件分段處理中...");
+            const progressBar = document.getElementById('progressBar');
+            const statusText = document.getElementById('statusText');
+            const SAFE_CHUNK_SIZE = 10 * 1024 * 1024;
+
+            const totalChunks = Math.ceil(file.size / SAFE_CHUNK_SIZE);
+            const sessionId = `s_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+            
+            debugLog(`📦 文件分段: ${totalChunks} 段`, 'info');
+
+            try {
+                let userId = await getUserId();
+
+                for (let i = 0; i < totalChunks; i++) {
+                    const start = i * SAFE_CHUNK_SIZE;
+                    const end = Math.min(start + SAFE_CHUNK_SIZE, file.size);
+                    const chunk = file.slice(start, end);
+
+                    statusText.textContent = `📤 上傳分段 ${i + 1}/${totalChunks}...`;
+                    const percent = Math.round(((i + 1) / totalChunks) * 100);
+                    progressBar.style.width = percent + "%";
+
+                    const base64Chunk = await blobToBase64(chunk);
+
+                    await uploadChunkJson(
+                        {
+                            uploadType: 'chunked',
+                            sessionId: sessionId,
+                            chunkIndex: i,
+                            totalChunks: totalChunks,
+                            chunkData: base64Chunk,
+                            fileName: file.name,
+                            mimeType: file.type,
+                            email: email || '',
+                            userId: userId
+                        },
+                        i + 1
+                    );
+                }
+                handleFinalSuccess();
+
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        async function uploadChunkJson(payload, indexStr) {
+            const response = await fetch(N8N_WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ body: payload }) 
+            });
+
+            if (!response.ok) {
+                const txt = await response.text();
+                throw new Error(`分段 ${indexStr} 失敗: ${response.status} ${txt}`);
+            }
+            debugLog(`✅ 分段 ${indexStr} 上傳成功`, 'success');
+            await sleep(200);
+        }
+
+        // ==========================================
+        // 🎨 WAV 編碼函數（保留）
+        // ==========================================
+        
+        function sliceAndEncodeWav(audioBuffer, startTime, endTime) {
+            return new Promise((resolve) => {
+                const sampleRate = audioBuffer.sampleRate;
+                const startOffset = Math.floor(startTime * sampleRate);
+                const endOffset = Math.floor(endTime * sampleRate);
+                const frameCount = endOffset - startOffset;
+                const channels = audioBuffer.numberOfChannels;
+
+                const interleaved = new Float32Array(frameCount * channels);
+                
+                for (let channel = 0; channel < channels; channel++) {
+                    const channelData = audioBuffer.getChannelData(channel).subarray(startOffset, endOffset);
+                    for (let i = 0; i < frameCount; i++) {
+                        interleaved[i * channels + channel] = channelData[i];
+                    }
+                }
+
+                const buffer = new ArrayBuffer(44 + interleaved.length * 2);
+                const view = new DataView(buffer);
+
+                writeString(view, 0, 'RIFF');
+                view.setUint32(4, 36 + interleaved.length * 2, true);
+                writeString(view, 8, 'WAVE');
+                writeString(view, 12, 'fmt ');
+                view.setUint32(16, 16, true);
+                view.setUint16(20, 1, true);
+                view.setUint16(22, channels, true);
+                view.setUint32(24, sampleRate, true);
+                view.setUint32(28, sampleRate * channels * 2, true);
+                view.setUint16(32, channels * 2, true);
+                view.setUint16(34, 16, true);
+                writeString(view, 36, 'data');
+                view.setUint32(40, interleaved.length * 2, true);
+
+                let offset = 44;
+                for (let i = 0; i < interleaved.length; i++) {
+                    let s = Math.max(-1, Math.min(1, interleaved[i]));
+                    s = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    view.setInt16(offset, s, true);
+                    offset += 2;
+                }
+
+                resolve(new Blob([view], { type: 'audio/wav' }));
+            });
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        // ==========================================
+        // 🎯 主要事件處理
+        // ==========================================
+        
         function debugLog(message, type = 'info') {
             const timestamp = new Date().toLocaleTimeString();
             const logDiv = document.getElementById('debugLog');
@@ -139,14 +474,14 @@
                         liff.login();
                     } else {
                         const user = await liff.getDecodedIDToken();
-                        debugLog(`LIFF OK, user: ${user?.email || 'no email'}`, 'success');
+                        debugLog(`✅ LIFF OK, user: ${user?.email || 'no email'}`, 'success');
                         if(user && user.email) {
                             document.getElementById('emailInput').value = user.email;
                         }
                     }
                 }
             } catch (err) {
-                debugLog(`LIFF Error: ${err.message}`, 'error');
+                debugLog(`❌ LIFF Error: ${err.message}`, 'error');
             }
         }
         initLiff();
@@ -158,7 +493,6 @@
             if (file) {
                 const sizeMB = (file.size / 1024 / 1024).toFixed(2);
                 const isAudio = file.type.startsWith('audio/') || file.name.endsWith('.m4a');
-                const GROQ_LIMIT = 25 * 1024 * 1024; // 25MB
                 
                 fileInfo.textContent = `📄 ${file.name} (${sizeMB} MB)`;
                 fileInfo.style.display = 'block';
@@ -166,21 +500,18 @@
                 
                 debugLog(`檔案偵測: ${file.name}, ${sizeMB} MB, Type: ${file.type}`, 'info');
                 
-                // 音訊檔案的智能提示
                 if (isAudio) {
                     if (file.size <= GROQ_LIMIT) {
-                        fileInfo.textContent += ` ✅ 將直接上傳`;
-                        debugLog(`音訊檔案 ≤ 25MB，將直接傳送至 N8N`, 'success');
+                        fileInfo.textContent += ` ✅ 將使用 JWT Token 轉錄`;
+                        debugLog(`音訊 ≤ 25MB，將使用 JWT Token 直接轉錄`, 'success');
                     } else {
                         fileInfo.classList.add('large-file');
-                        const estimatedChunks = Math.ceil(file.size / (GROQ_LIMIT * 0.8)); // 預估分段數
-                        fileInfo.textContent += ` ⚠️ 將轉碼分段 (約 ${estimatedChunks} 段 WAV)`;
-                        debugLog(`音訊檔案 > 25MB，將進行前端轉碼與分段`, 'warn');
+                        const estimatedChunks = Math.ceil(file.size / (GROQ_LIMIT * 0.8));
+                        fileInfo.textContent += ` ⚠️ 將使用 JWT Token 分段轉錄 (約 ${estimatedChunks} 段)`;
+                        debugLog(`音訊 > 25MB，將使用 JWT Token 分段轉錄`, 'warn');
                     }
-                } 
-                // 非音訊檔案的提示
-                else if (file.size > LARGE_FILE_THRESHOLD) {
-                    const chunks = Math.ceil(file.size / SAFE_CHUNK_SIZE);
+                } else if (file.size > LARGE_FILE_THRESHOLD) {
+                    const chunks = Math.ceil(file.size / (10 * 1024 * 1024));
                     fileInfo.classList.add('large-file');
                     fileInfo.textContent += ` - 將分成 ${chunks} 段上傳`;
                     debugLog(`大型文件，將分成 ${chunks} 段`, 'warn');
@@ -200,7 +531,6 @@
                 alert('請選擇檔案'); return;
             }
             
-            // ✅ Email 改為選填：有填才驗證格式
             if (email && !email.includes('@')) {
                 alert('請輸入有效的 Email 格式'); return;
             }
@@ -211,257 +541,34 @@
             }
             
             const isAudio = file.type.startsWith('audio/') || file.name.endsWith('.m4a');
-            const GROQ_LIMIT = 25 * 1024 * 1024; // 25MB (Groq Whisper 限制)
 
-            // 🎯 智能分流邏輯
             if (isAudio) {
                 const sizeMB = (file.size / 1024 / 1024).toFixed(2);
                 
-                // ✅ 小於 25MB：直接傳送至 N8N，讓 Groq 處理
-                if (file.size <= GROQ_LIMIT) {
-                    debugLog(`音訊檔案 ${sizeMB}MB ≤ 25MB，直接上傳至 N8N`, 'success');
-                    uploadDirectly(file, email);
-                } 
-                // ⚠️ 大於 25MB：前端轉碼並分段
-                else {
-                    debugLog(`音訊檔案 ${sizeMB}MB > 25MB，啟動前端轉碼分段流程`, 'warn');
-                    await processAndUploadAudio(file, email);
+                // 🔑 取得 JWT Token
+                try {
+                    await getTemporaryToken();
+                } catch (error) {
+                    showError('無法取得轉錄授權，請稍後再試');
+                    return;
                 }
-            } 
-            // 非音訊檔案的處理邏輯維持不變
-            else if (file.size > LARGE_FILE_THRESHOLD) {
-                debugLog('啟動二進位分段流程 (Binary Chunking)', 'warn');
+                
+                // 處理音訊
+                if (file.size <= GROQ_LIMIT) {
+                    debugLog(`🎵 音訊 ${sizeMB}MB，使用 JWT Token 直接轉錄`, 'success');
+                    await processSmallAudioWithJWT(file, email);
+                } else {
+                    debugLog(`🎵 音訊 ${sizeMB}MB，使用 JWT Token 分段轉錄`, 'warn');
+                    await processLargeAudioWithJWT(file, email);
+                }
+            } else if (file.size > LARGE_FILE_THRESHOLD) {
+                debugLog('啟動二進位分段流程', 'warn');
                 uploadLargeFile(file, email);
             } else {
                 debugLog('一般檔案直接上傳', 'info');
                 uploadDirectly(file, email);
             }
         });
-
-        // ==========================================
-        // 1. 標準直接上傳 (適用小檔、PDF等)
-        // ==========================================
-        function uploadDirectly(file, email) {
-            setupUI("⏳ 上傳中...");
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('email', email || ''); // ✅ 即使空值也傳送，讓 N8N 判斷
-            formData.append('uploadType', 'direct');
-            
-            appendUserId(formData).then(() => {
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', N8N_WEBHOOK_URL, true);
-                
-                xhr.upload.onprogress = function(e) {
-                    if (e.lengthComputable) updateProgress(e.loaded, e.total, "📤 上傳中...");
-                };
-
-                xhr.onload = () => handleXhrLoad(xhr);
-                xhr.onerror = () => showError("網路錯誤");
-                xhr.send(formData);
-            });
-        }
-
-        // ==========================================
-        // 2. 音訊前端轉碼分段 (適用大型 M4A/MP3)
-        // ==========================================
-        async function processAndUploadAudio(file, email) {
-            setupUI("🎧 正在讀取並解碼音訊...");
-            const submitBtn = document.getElementById('submitBtn');
-            const resultMsg = document.getElementById('resultMsg');
-            const statusText = document.getElementById('statusText');
-            const progressBar = document.getElementById('progressBar');
-
-            try {
-                // 1. 解碼 (Decode)
-                debugLog(`讀取檔案 ArrayBuffer...`, 'info');
-                const arrayBuffer = await file.arrayBuffer();
-                
-                debugLog(`開始解碼 AudioContext (這可能需要幾秒鐘)...`, 'warn');
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-                
-                debugLog(`解碼成功: ${audioBuffer.duration.toFixed(1)}s, ${audioBuffer.numberOfChannels}ch, ${audioBuffer.sampleRate}Hz`, 'success');
-
-                // 2. 計算分段
-                const totalDuration = audioBuffer.duration;
-                const totalChunks = Math.ceil(totalDuration / AUDIO_CHUNK_DURATION);
-                const sessionId = `s_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-                
-                debugLog(`準備分段: 共 ${totalChunks} 段, Session: ${sessionId}`, 'info');
-
-                let userId = await getUserId();
-
-                // 3. 執行分段上傳
-                for (let i = 0; i < totalChunks; i++) {
-                    const start = i * AUDIO_CHUNK_DURATION;
-                    const end = Math.min(start + AUDIO_CHUNK_DURATION, totalDuration);
-                    
-                    statusText.textContent = `⚙️ 轉碼分段 ${i + 1}/${totalChunks} (WAV)...`;
-                    
-                    // 切割並封裝成 WAV Blob
-                    const wavBlob = await sliceAndEncodeWav(audioBuffer, start, end);
-                    
-                    // 轉 Base64
-                    const base64Data = await blobToBase64(wavBlob);
-                    
-                    // 檢查單段大小
-                    const sizeMB = (base64Data.length / 1024 / 1024).toFixed(2);
-                    debugLog(`Chunk ${i+1}/${totalChunks}: ${sizeMB}MB (WAV)`, 'info');
-
-                    // 上傳
-                    statusText.textContent = `📤 上傳分段 ${i + 1}/${totalChunks}...`;
-                    const percent = Math.round(((i + 1) / totalChunks) * 100);
-                    progressBar.style.width = percent + "%";
-
-                    await uploadChunkJson(
-                        {
-                            uploadType: 'chunked', // 🔥 標記為音訊分段
-                            sessionId: sessionId,
-                            chunkIndex: i,
-                            totalChunks: totalChunks,
-                            chunkData: base64Data,
-                            fileName: file.name + ".wav", // 強制改名為 .wav
-                            mimeType: 'audio/wav',
-                            email: email || '', // ✅ 即使空值也傳送
-                            userId: userId
-                        }, 
-                        i + 1
-                    );
-                }
-
-                handleFinalSuccess();
-
-            } catch (err) {
-                console.error(err);
-                showError(`音訊處理失敗: ${err.message}`);
-            }
-        }
-
-        // ==========================================
-        // 3. 文件二進位分段 (適用大型 PDF/Doc)
-        // ==========================================
-        async function uploadLargeFile(file, email) {
-            setupUI("⏳ 文件分段處理中...");
-            const progressBar = document.getElementById('progressBar');
-            const statusText = document.getElementById('statusText');
-
-            const totalChunks = Math.ceil(file.size / SAFE_CHUNK_SIZE);
-            const sessionId = `s_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-            
-            debugLog(`文件分段: ${totalChunks} 段`, 'info');
-
-            try {
-                let userId = await getUserId();
-
-                for (let i = 0; i < totalChunks; i++) {
-                    const start = i * SAFE_CHUNK_SIZE;
-                    const end = Math.min(start + SAFE_CHUNK_SIZE, file.size);
-                    const chunk = file.slice(start, end);
-
-                    statusText.textContent = `📤 上傳分段 ${i + 1}/${totalChunks}...`;
-                    const percent = Math.round(((i + 1) / totalChunks) * 100);
-                    progressBar.style.width = percent + "%";
-
-                    const base64Chunk = await blobToBase64(chunk);
-
-                    await uploadChunkJson(
-                        {
-                            uploadType: 'chunked', // 一般分段
-                            sessionId: sessionId,
-                            chunkIndex: i,
-                            totalChunks: totalChunks,
-                            chunkData: base64Chunk,
-                            fileName: file.name,
-                            mimeType: file.type,
-                            email: email || '', // ✅ 即使空值也傳送
-                            userId: userId
-                        },
-                        i + 1
-                    );
-                }
-                handleFinalSuccess();
-
-            } catch (error) {
-                showError(error.message);
-            }
-        }
-
-        // ==========================================
-        // 🛠️ 核心工具函數 (WAV Encoder & Helpers)
-        // ==========================================
-        
-        // 通用 JSON 上傳 Fetcher (相容 n8n body 結構)
-        async function uploadChunkJson(payload, indexStr) {
-            const response = await fetch(N8N_WEBHOOK_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                // 巢狀結構以符合您的 N8N 讀取邏輯 (body.body)
-                body: JSON.stringify({ body: payload }) 
-            });
-
-            if (!response.ok) {
-                const txt = await response.text();
-                throw new Error(`分段 ${indexStr} 失敗: ${response.status} ${txt}`);
-            }
-            debugLog(`分段 ${indexStr} 上傳成功`, 'success');
-            await sleep(200); // 緩衝
-        }
-
-        function sliceAndEncodeWav(audioBuffer, startTime, endTime) {
-            return new Promise((resolve) => {
-                const sampleRate = audioBuffer.sampleRate;
-                const startOffset = Math.floor(startTime * sampleRate);
-                const endOffset = Math.floor(endTime * sampleRate);
-                const frameCount = endOffset - startOffset;
-                const channels = audioBuffer.numberOfChannels;
-
-                // 建立交錯的 Buffer
-                const interleaved = new Float32Array(frameCount * channels);
-                
-                for (let channel = 0; channel < channels; channel++) {
-                    const channelData = audioBuffer.getChannelData(channel).subarray(startOffset, endOffset);
-                    for (let i = 0; i < frameCount; i++) {
-                        interleaved[i * channels + channel] = channelData[i];
-                    }
-                }
-
-                // WAV Header (44 bytes) + PCM Data
-                const buffer = new ArrayBuffer(44 + interleaved.length * 2);
-                const view = new DataView(buffer);
-
-                writeString(view, 0, 'RIFF');
-                view.setUint32(4, 36 + interleaved.length * 2, true);
-                writeString(view, 8, 'WAVE');
-                writeString(view, 12, 'fmt ');
-                view.setUint32(16, 16, true);
-                view.setUint16(20, 1, true); // PCM
-                view.setUint16(22, channels, true);
-                view.setUint32(24, sampleRate, true);
-                view.setUint32(28, sampleRate * channels * 2, true);
-                view.setUint16(32, channels * 2, true);
-                view.setUint16(34, 16, true); // 16-bit
-                writeString(view, 36, 'data');
-                view.setUint32(40, interleaved.length * 2, true);
-
-                // PCM 寫入
-                let offset = 44;
-                for (let i = 0; i < interleaved.length; i++) {
-                    let s = Math.max(-1, Math.min(1, interleaved[i]));
-                    s = s < 0 ? s * 0x8000 : s * 0x7FFF;
-                    view.setInt16(offset, s, true);
-                    offset += 2;
-                }
-
-                resolve(new Blob([view], { type: 'audio/wav' }));
-            });
-        }
-
-        function writeString(view, offset, string) {
-            for (let i = 0; i < string.length; i++) {
-                view.setUint8(offset + i, string.charCodeAt(i));
-            }
-        }
 
         // UI Helpers
         function setupUI(status) {
@@ -493,11 +600,6 @@
         }
 
         function handleXhrLoad(xhr) {
-            const submitBtn = document.getElementById('submitBtn');
-            const closeBtn = document.getElementById('closeBtn');
-            const resultMsg = document.getElementById('resultMsg');
-            const statusText = document.getElementById('statusText');
-
             debugLog(`回應: ${xhr.status}`, xhr.status === 200 ? 'success' : 'error');
             
             if (xhr.status === 200) {
@@ -519,7 +621,6 @@
             progressBar.classList.add("processing");
             statusText.textContent = "✅ 完成";
             
-            // ✅ 根據有無 Email 顯示不同訊息
             let msg = email 
                 ? '處理完畢，結果已發送至 Email' 
                 : '處理完畢，摘要將透過 LINE 通知您';
@@ -536,7 +637,7 @@
             resultMsg.style.display = "block";
             submitBtn.textContent = "完成";
             closeBtn.style.display = "block";
-            debugLog('All Done.', 'success');
+            debugLog('🎉 All Done.', 'success');
         }
 
         function showError(msg) {
@@ -544,7 +645,7 @@
             const closeBtn = document.getElementById('closeBtn');
             const resultMsg = document.getElementById('resultMsg');
             
-            debugLog(`Error: ${msg}`, 'error');
+            debugLog(`❌ Error: ${msg}`, 'error');
             resultMsg.innerHTML = `❌ ${msg}`;
             resultMsg.className = "message-box error";
             resultMsg.style.display = "block";
@@ -579,7 +680,7 @@
         
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        debugLog('System Ready: v5.1 Smart Audio (智能判斷 25MB)', 'success');
+        debugLog('🚀 System Ready: v5.2 JWT Token Mode', 'success');
     </script>
 </body>
 </html>
