@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WiseLife 會議助理 v5.0 Audio Fix</title>
+    <title>WiseLife 會議助理 v5.1 Smart Audio</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         :root { --primary: #00B900; --processing: #3498db; --warning: #f39c12; --debug: #9b59b6; }
@@ -67,7 +67,7 @@
 </head>
 <body>
     <div class="container">
-        <div class="version-tag">🎧 v5.0 Audio Logic</div>
+        <div class="version-tag">🎧 v5.1 Smart Audio</div>
 
         <h2>🎙️ WiseLife 會議助理</h2>
         <form id="uploadForm">
@@ -80,8 +80,8 @@
             </div>
             
             <div class="form-group">
-                <label>2. 接收 Email <span class="sub-label">(PDF報告)</span></label>
-                <input type="email" id="emailInput" name="email" placeholder="輸入 Email 以接收完整 PDF 報告">
+                <label>2. 接收 Email <span class="sub-label">(選填，未填寫將透過 LINE 通知)</span></label>
+                <input type="email" id="emailInput" name="email" placeholder="輸入 Email 以接收完整 PDF 報告（選填）">
             </div>
 
             <button type="submit" id="submitBtn">🚀 開始智慧分析</button>
@@ -157,25 +157,34 @@
             
             if (file) {
                 const sizeMB = (file.size / 1024 / 1024).toFixed(2);
-                const isLarge = file.size > LARGE_FILE_THRESHOLD;
                 const isAudio = file.type.startsWith('audio/') || file.name.endsWith('.m4a');
+                const GROQ_LIMIT = 25 * 1024 * 1024; // 25MB
                 
                 fileInfo.textContent = `📄 ${file.name} (${sizeMB} MB)`;
                 fileInfo.style.display = 'block';
+                fileInfo.classList.remove('large-file');
                 
                 debugLog(`檔案偵測: ${file.name}, ${sizeMB} MB, Type: ${file.type}`, 'info');
                 
-                if (isAudio && isLarge) {
-                    fileInfo.classList.add('large-file');
-                    fileInfo.textContent += ` - 將進行前端轉碼與分段 (WAV)`;
-                    debugLog('偵測到大型音訊，將使用 AudioContext 轉碼上傳', 'warn');
-                } else if (isLarge) {
+                // 音訊檔案的智能提示
+                if (isAudio) {
+                    if (file.size <= GROQ_LIMIT) {
+                        fileInfo.textContent += ` ✅ 將直接上傳`;
+                        debugLog(`音訊檔案 ≤ 25MB，將直接傳送至 N8N`, 'success');
+                    } else {
+                        fileInfo.classList.add('large-file');
+                        const estimatedChunks = Math.ceil(file.size / (GROQ_LIMIT * 0.8)); // 預估分段數
+                        fileInfo.textContent += ` ⚠️ 將轉碼分段 (約 ${estimatedChunks} 段 WAV)`;
+                        debugLog(`音訊檔案 > 25MB，將進行前端轉碼與分段`, 'warn');
+                    }
+                } 
+                // 非音訊檔案的提示
+                else if (file.size > LARGE_FILE_THRESHOLD) {
                     const chunks = Math.ceil(file.size / SAFE_CHUNK_SIZE);
                     fileInfo.classList.add('large-file');
                     fileInfo.textContent += ` - 將分成 ${chunks} 段上傳`;
                     debugLog(`大型文件，將分成 ${chunks} 段`, 'warn');
                 } else {
-                    fileInfo.classList.remove('large-file');
                     debugLog('檔案大小適中，將直接上傳', 'success');
                 }
             }
@@ -190,26 +199,37 @@
             if (!file) {
                 alert('請選擇檔案'); return;
             }
-            if (!email || !email.includes('@')) {
-                alert('請輸入有效的 Email'); return;
+            
+            // ✅ Email 改為選填：有填才驗證格式
+            if (email && !email.includes('@')) {
+                alert('請輸入有效的 Email 格式'); return;
             }
 
             debugLog(`開始處理任務...`, 'info');
+            if (!email) {
+                debugLog('未填寫 Email，結果將透過 LINE 通知', 'info');
+            }
             
             const isAudio = file.type.startsWith('audio/') || file.name.endsWith('.m4a');
+            const GROQ_LIMIT = 25 * 1024 * 1024; // 25MB (Groq Whisper 限制)
 
-            // 🎯 分流邏輯
+            // 🎯 智能分流邏輯
             if (isAudio) {
-                // 音訊處理 (無論大小，為了格式統一建議都走轉碼，或僅針對大檔)
-                // 這裡設定：如果是 m4a 或是大檔，都走轉碼流程以策安全
-                if (file.size > LARGE_FILE_THRESHOLD || file.name.endsWith('.m4a')) {
-                    debugLog('啟動音訊轉碼分段流程 (Process & Upload)', 'warn');
-                    await processAndUploadAudio(file, email);
-                } else {
-                    debugLog('小型音訊，直接上傳', 'info');
+                const sizeMB = (file.size / 1024 / 1024).toFixed(2);
+                
+                // ✅ 小於 25MB：直接傳送至 N8N，讓 Groq 處理
+                if (file.size <= GROQ_LIMIT) {
+                    debugLog(`音訊檔案 ${sizeMB}MB ≤ 25MB，直接上傳至 N8N`, 'success');
                     uploadDirectly(file, email);
+                } 
+                // ⚠️ 大於 25MB：前端轉碼並分段
+                else {
+                    debugLog(`音訊檔案 ${sizeMB}MB > 25MB，啟動前端轉碼分段流程`, 'warn');
+                    await processAndUploadAudio(file, email);
                 }
-            } else if (file.size > LARGE_FILE_THRESHOLD) {
+            } 
+            // 非音訊檔案的處理邏輯維持不變
+            else if (file.size > LARGE_FILE_THRESHOLD) {
                 debugLog('啟動二進位分段流程 (Binary Chunking)', 'warn');
                 uploadLargeFile(file, email);
             } else {
@@ -225,7 +245,7 @@
             setupUI("⏳ 上傳中...");
             const formData = new FormData();
             formData.append('file', file);
-            formData.append('email', email);
+            formData.append('email', email || ''); // ✅ 即使空值也傳送，讓 N8N 判斷
             formData.append('uploadType', 'direct');
             
             appendUserId(formData).then(() => {
@@ -303,7 +323,7 @@
                             chunkData: base64Data,
                             fileName: file.name + ".wav", // 強制改名為 .wav
                             mimeType: 'audio/wav',
-                            email: email,
+                            email: email || '', // ✅ 即使空值也傳送
                             userId: userId
                         }, 
                         i + 1
@@ -354,7 +374,7 @@
                             chunkData: base64Chunk,
                             fileName: file.name,
                             mimeType: file.type,
-                            email: email,
+                            email: email || '', // ✅ 即使空值也傳送
                             userId: userId
                         },
                         i + 1
@@ -493,12 +513,17 @@
             const resultMsg = document.getElementById('resultMsg');
             const statusText = document.getElementById('statusText');
             const progressBar = document.getElementById('progressBar');
+            const email = document.getElementById('emailInput').value.trim();
 
             progressBar.style.width = "100%";
             progressBar.classList.add("processing");
             statusText.textContent = "✅ 完成";
             
-            let msg = '處理完畢，結果已發送至 Email';
+            // ✅ 根據有無 Email 顯示不同訊息
+            let msg = email 
+                ? '處理完畢，結果已發送至 Email' 
+                : '處理完畢，摘要將透過 LINE 通知您';
+                
             try {
                 if(responseText) {
                     const res = JSON.parse(responseText);
@@ -554,7 +579,7 @@
         
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        debugLog('System Ready: v5.0 Audio Integration', 'success');
+        debugLog('System Ready: v5.1 Smart Audio (智能判斷 25MB)', 'success');
     </script>
 </body>
 </html>
