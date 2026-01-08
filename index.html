@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WiseLife 會議助理 v5.2 JWT</title>
+    <title>WiseLife 會議助理 v5.2 JWT (Fixed)</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         :root { --primary: #00B900; --processing: #3498db; --warning: #f39c12; --debug: #9b59b6; }
@@ -67,7 +67,7 @@
 </head>
 <body>
     <div class="container">
-        <div class="version-tag">🔐 v5.2 JWT</div>
+        <div class="version-tag">🔐 v5.3 JWT (Fixed)</div>
 
         <h2>🎙️ WiseLife 會議助理</h2>
         <form id="uploadForm">
@@ -290,14 +290,15 @@
         }
 
         async function sendTranscriptToN8N(payload) {
+            // ==========================================
+            // [Fix] 移除多餘的 { body: ... } 包裝
+            // ==========================================
             const response = await fetch(N8N_WEBHOOK_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    body: payload
-                })
+                body: JSON.stringify(payload) // 修正處：直接傳送 payload
             });
             
             if (!response.ok) {
@@ -380,10 +381,13 @@
         }
 
         async function uploadChunkJson(payload, indexStr) {
+            // ==========================================
+            // [Fix] 移除多餘的 { body: ... } 包裝
+            // ==========================================
             const response = await fetch(N8N_WEBHOOK_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ body: payload }) 
+                body: JSON.stringify(payload) // 修正處：直接傳送 payload
             });
 
             if (!response.ok) {
@@ -680,7 +684,7 @@
         
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        debugLog('🚀 System Ready: v5.2 JWT Token Mode', 'success');
+        debugLog('🚀 System Ready: v5.2 JWT Token Mode (Fixed)', 'success');
     </script>
 </body>
 </html>
